@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 import math
+import os
 import time
 
 import torch
 import torch.distributed as dist
 
-from everdream.common import COMPUTE_DTYPE, get_peak_flops, print0
+from everdream.common import COMPUTE_DTYPE, get_dist_info, get_peak_flops, print0
 from everdream.config.schema import EverdreamConfig
 from everdream.data.dataloader import tokenizing_weighted_data_loader_bos_bestfit
 from everdream.data.sources import ensure_dataset_ready
@@ -40,6 +42,55 @@ def _normalize_output(out):
     raise TypeError(f'Unsupported model output type: {type(out)}')
 
 
+def _unwrap_state_dict(state_dict):
+    return {k.removeprefix("_orig_mod."): v for k, v in state_dict.items()}
+
+
+def _checkpoint_paths(base_dir: str, step: int, rank: int):
+    return {
+        "model": os.path.join(base_dir, f"model_{step:06d}.pt"),
+        "optim": os.path.join(base_dir, f"optim_{step:06d}_rank{rank:d}.pt"),
+        "meta": os.path.join(base_dir, f"meta_{step:06d}.json"),
+    }
+
+
+def _save_checkpoint(base_dir: str, step: int, model, optimizer, cfg: EverdreamConfig, rank: int, master_process: bool):
+    os.makedirs(base_dir, exist_ok=True)
+    paths = _checkpoint_paths(base_dir, step, rank)
+    target_model = model._orig_mod if hasattr(model, "_orig_mod") else model
+    if master_process:
+        torch.save(_unwrap_state_dict(target_model.state_dict()), paths["model"])
+        meta = {
+            "step": step,
+            "runtime": _safe_runtime_config(cfg.runtime),
+            "tokenizer": cfg.tokenizer.__dict__,
+            "training": cfg.training.__dict__,
+            "model": cfg.model,
+            "datasets": [d.__dict__ for d in cfg.datasets],
+        }
+        with open(paths["meta"], "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+    torch.save(optimizer.state_dict(), paths["optim"])
+    if dist.is_initialized():
+        dist.barrier()
+
+
+def _load_checkpoint(base_dir: str, step: int, model, optimizer, device, rank: int):
+    paths = _checkpoint_paths(base_dir, step, rank)
+    model_state = torch.load(paths["model"], map_location=device)
+    target_model = model._orig_mod if hasattr(model, "_orig_mod") else model
+    target_model.load_state_dict(model_state, strict=True)
+    optim_state = torch.load(paths["optim"], map_location=device)
+    optimizer.load_state_dict(optim_state)
+    meta = None
+    if os.path.exists(paths["meta"]):
+        with open(paths["meta"], "r", encoding="utf-8") as f:
+            meta = json.load(f)
+    if dist.is_initialized():
+        dist.barrier()
+    return meta
+
+
 def _maybe_enable_fp8(model, runtime_cfg, device_type):
     if not runtime_cfg.fp8:
         return model
@@ -61,6 +112,7 @@ def _maybe_enable_fp8(model, runtime_cfg, device_type):
 
 
 def train(cfg: EverdreamConfig, device, master_process: bool = True):
+    ddp, ddp_rank, _, ddp_world_size = get_dist_info()
     if master_process:
         for spec in cfg.datasets:
             ensure_dataset_ready(spec)
@@ -87,6 +139,13 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
         scalar_lr=cfg.training.scalar_lr,
     )
 
+    if cfg.runtime.checkpoint_path and cfg.training.resume_from_step > 0:
+        meta = _load_checkpoint(cfg.runtime.checkpoint_path, cfg.training.resume_from_step, model, optimizer, device, ddp_rank)
+        if master_process:
+            print0(f"Resumed from step {cfg.training.resume_from_step}")
+            if meta is not None:
+                print0(f"Checkpoint path: {cfg.runtime.checkpoint_path}")
+
     run = init_wandb(
         enabled=cfg.runtime.wandb,
         project=cfg.runtime.wandb_project,
@@ -100,8 +159,15 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
     val_loader = tokenizing_weighted_data_loader_bos_bestfit(tokenizer, cfg.datasets, B=cfg.training.device_batch_size, T=cfg.training.max_seq_len, split='val', seed=cfg.runtime.seed, device=device.type)
 
     num_flops_per_token = model.estimate_flops()
-    tokens_per_step = cfg.training.total_batch_size
-    grad_accum = max(1, tokens_per_step // (cfg.training.device_batch_size * cfg.training.max_seq_len))
+    local_microbatch_tokens = cfg.training.device_batch_size * cfg.training.max_seq_len
+    global_microbatch_tokens = local_microbatch_tokens * ddp_world_size
+    if cfg.training.total_batch_size % global_microbatch_tokens != 0:
+        raise ValueError(
+            f"total_batch_size={cfg.training.total_batch_size} must be divisible by "
+            f"device_batch_size*max_seq_len*world_size={global_microbatch_tokens}"
+        )
+    grad_accum = max(1, cfg.training.total_batch_size // global_microbatch_tokens)
+    tokens_per_step = global_microbatch_tokens * grad_accum
     flops_per_step = num_flops_per_token * tokens_per_step
     active_params = model.num_scaling_params()['active']
     if cfg.training.num_iterations > 0:
@@ -145,6 +211,10 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
             totals['ce'] += out['ce'].item()
             totals['lb'] += out['lb'].item()
             totals['rz'] += out['rz'].item()
+        if dist.is_initialized():
+            t = torch.tensor([totals['total'], totals['ce'], totals['lb'], totals['rz']], device=device, dtype=torch.float64)
+            dist.all_reduce(t, op=dist.ReduceOp.AVG)
+            totals['total'], totals['ce'], totals['lb'], totals['rz'] = t.tolist()
         model.train()
         for key in totals:
             totals[key] /= count
@@ -196,7 +266,8 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
 
     model.train()
     log_t0 = time.time()
-    for step in range(1, num_iterations + 1):
+    start_step = max(0, cfg.training.resume_from_step)
+    for step in range(start_step + 1, num_iterations + 1):
         lrm = get_lr_multiplier(step)
         for group in optimizer.param_groups:
             group['lr'] = group['initial_lr'] * lrm
@@ -216,9 +287,10 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
         optimizer.step()
         if step % 50 == 0:
             dt = time.time() - log_t0
-            tps = cfg.training.device_batch_size * grad_accum * (cfg.training.max_seq_len - 1) * 50 / dt
-            print0(f"step {step:5d}/{num_iterations} | total {total_acc:.4f} | ce {ce_acc:.4f} | aux {(lb_acc + rz_acc):.4f} | lb {lb_acc:.4f} | rz {rz_acc:.4f} | lrm {lrm:.2f} | {tps/1e3:.0f}k tok/s")
-            run.log({'step': step, 'train/total': total_acc, 'train/ce': ce_acc, 'train/lb': lb_acc, 'train/rz': rz_acc, 'train/aux': lb_acc + rz_acc, 'train/tok_s': tps, 'train/lrm': lrm})
+            local_tps = cfg.training.device_batch_size * grad_accum * (cfg.training.max_seq_len - 1) * 50 / dt
+            global_tps = local_tps * ddp_world_size
+            print0(f"step {step:5d}/{num_iterations} | total {total_acc:.4f} | ce {ce_acc:.4f} | aux {(lb_acc + rz_acc):.4f} | lb {lb_acc:.4f} | rz {rz_acc:.4f} | lrm {lrm:.2f} | {global_tps/1e3:.0f}k tok/s")
+            run.log({'step': step, 'train/total': total_acc, 'train/ce': ce_acc, 'train/lb': lb_acc, 'train/rz': rz_acc, 'train/aux': lb_acc + rz_acc, 'train/tok_s_global': global_tps, 'train/tok_s_local': local_tps, 'train/lrm': lrm})
             log_t0 = time.time()
         if cfg.training.eval_every > 0 and step % cfg.training.eval_every == 0:
             metrics = eval_loss()
@@ -226,4 +298,6 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
             print0(f"  -> val_total {metrics['total']:.4f} | val_ce {metrics['ce']:.4f} | val_aux {metrics['aux']:.4f} | ppl {ppl:.1f}")
             run.log({'step': step, 'val/total': metrics['total'], 'val/ce': metrics['ce'], 'val/lb': metrics['lb'], 'val/rz': metrics['rz'], 'val/aux': metrics['aux'], 'val/ppl': ppl})
             maybe_run_extended_eval(step)
+        if cfg.runtime.checkpoint_path and cfg.training.save_every > 0 and step % cfg.training.save_every == 0:
+            _save_checkpoint(cfg.runtime.checkpoint_path, step, model, optimizer, cfg, ddp_rank, master_process)
     run.finish()

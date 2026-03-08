@@ -8,6 +8,8 @@ import torch
 import torch.distributed as dist
 from jinja2 import Template
 
+from everdream.common import COMPUTE_DTYPE
+
 
 def _model_device(model) -> torch.device:
     if hasattr(model, "get_device"):
@@ -16,7 +18,9 @@ def _model_device(model) -> torch.device:
 
 
 def _model_logits(model, input_ids: torch.Tensor) -> torch.Tensor:
-    out = model(input_ids)
+    device_type = input_ids.device.type
+    with torch.autocast(device_type=device_type, dtype=COMPUTE_DTYPE):
+        out = model(input_ids)
     if isinstance(out, torch.Tensor):
         return out
     if isinstance(out, tuple):
@@ -234,4 +238,3 @@ def evaluate_task(model, tokenizer, data, device, task_meta):
         dist.barrier()
         dist.all_reduce(correct, op=dist.ReduceOp.SUM)
     return correct.mean().item()
-
