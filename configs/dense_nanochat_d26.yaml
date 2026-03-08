@@ -1,0 +1,35 @@
+runtime:
+  run_name: dense-nanochat-d26
+  notebook: false
+  mount_drive: false
+  install_gpu_extras: true
+  install_hybrid: false
+  wandb: false
+  output_dir: ""
+  checkpoint_path: ""
+tokenizer:
+  source: local
+training:
+  max_seq_len: 2048
+  device_batch_size: 16
+  total_batch_size: 524288
+  target_tokens: -1
+  target_param_data_ratio: 10.5
+  eval_modes: [bpb, sample]
+  core_metric_every: -1
+  core_metric_max_per_task: -1
+  save_every: 1000
+model:
+  family: dense_nanochat
+  depth: 26
+  aspect_ratio: 64
+  head_dim: 128
+  window_pattern: L
+datasets:
+  - name: climbmix
+    source: https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resolve/main
+    local_dir: ""
+    weight: 1.0
+    max_shard_index: 6542
+    num_train_shards: 170
+    val_shard_index: 6542

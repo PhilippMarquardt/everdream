@@ -1,0 +1,28 @@
+runtime:
+  run_name: attention-moe
+  wandb: false
+tokenizer:
+  source: local
+training:
+  max_seq_len: 2048
+  device_batch_size: 8
+  total_batch_size: 524288
+  target_param_data_ratio: 10.5
+model:
+  family: attention_moe
+  depth: 24
+  aspect_ratio: 64
+  head_dim: 128
+  window_pattern: L
+  moe_num_experts: 32
+  moe_top_k: 2
+  moe_inter_dim: 512
+  moe_z_loss_alpha: 0.001
+  moe_jitter_noise: 0.1
+  moe_loss_weight: 0.01
+  dense_first_n: 1
+datasets:
+  - name: climbmix
+    source: https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resolve/main
+    local_dir: ""
+    weight: 1.0
