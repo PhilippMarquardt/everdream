@@ -62,13 +62,12 @@ def document_batches(spec: DatasetConfig, split: str, start: int = 0, step: int 
             yield rg.column("text").to_pylist()
 
 
-def _download_one(args: tuple[str, str, str]) -> bool:
-    name, url, filepath = args
+def _download_one(args: tuple[str, str, str, str]) -> bool:
+    name, url, filepath, hf_token = args
     if os.path.exists(filepath):
         return True
     tmp = filepath + ".tmp"
     headers = {}
-    hf_token = os.environ.get("HF_TOKEN", "").strip()
     if hf_token and "huggingface.co" in url:
         headers["Authorization"] = f"Bearer {hf_token}"
     max_attempts = 5
@@ -100,7 +99,8 @@ def download_dataset(spec: DatasetConfig, filenames: list[str], workers: int = 4
     if not spec.source.startswith("http"):
         raise ValueError(f"Dataset {spec.name} does not use a remote source URL")
     target_dir = resolve_dataset_dir(spec)
-    tasks = [(spec.name, f"{spec.source.rstrip('/')}/{name}", str(target_dir / name)) for name in filenames]
+    hf_token = os.environ.get("HF_TOKEN", "").strip()
+    tasks = [(spec.name, f"{spec.source.rstrip('/')}/{name}", str(target_dir / name), hf_token) for name in filenames]
     with Pool(processes=workers) as pool:
         pool.map(_download_one, tasks)
 
