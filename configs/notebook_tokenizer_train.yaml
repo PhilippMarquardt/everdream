@@ -17,7 +17,7 @@ tokenizer:
   vocab_size: 32768
   ensure_chat_special_tokens: true
   train_split: train
-  train_max_chars: 4000000000
+  train_max_chars: 8000000000
   train_doc_cap: 10000
   train_tokenizer_batch_size: 128
 
@@ -27,7 +27,7 @@ datasets:
     local_dir: /content/drive/MyDrive/everdream/climbmix-400b-shuffle
     weight: 0.8
     max_shard_index: 6542
-    num_train_shards: 170
+    num_train_shards: 340
     val_shard_index: 6542
     num_download_workers: 4
   - name: the_stack_dedup_python
@@ -37,7 +37,7 @@ datasets:
     text_field: content
     filename_template: data-{index:05d}-of-00144.parquet
     max_shard_index: 143
-    num_train_shards: 8
+    num_train_shards: 16
     val_shard_index: 143
     num_download_workers: 2
   - name: nemotron_math_4plus
@@ -46,6 +46,6 @@ datasets:
     weight: 0.1
     filename_template: part_{index:06d}.parquet
     max_shard_index: 45
-    num_train_shards: 20
+    num_train_shards: 32
     val_shard_index: 45
     num_download_workers: 2
