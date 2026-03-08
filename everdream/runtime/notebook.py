@@ -48,6 +48,7 @@ def init_notebook(
         "wandb",
         "pyarrow",
         "requests",
+        "rustbpe>=0.1.0",
         "tokenizers",
         "tiktoken",
         "Jinja2",

@@ -30,14 +30,15 @@ datasets:
     num_train_shards: 170
     val_shard_index: 6542
     num_download_workers: 4
-  - name: stack_edu_python
-    source: https://huggingface.co/datasets/HuggingFaceTB/stack-edu/resolve/main/Python
-    local_dir: /content/drive/MyDrive/everdream/stack-edu-python
+  - name: the_stack_v2_cpp
+    source: https://huggingface.co/datasets/TempestTeam/dataset-the-stack-v2-dedup-sub/resolve/main/C%2B%2B
+    local_dir: /content/drive/MyDrive/everdream/the-stack-v2-cpp
     weight: 0.1
-    filename_template: train-{index:05d}-of-00005.parquet
-    max_shard_index: 4
-    num_train_shards: 4
-    val_shard_index: 4
+    text_field: content
+    filename_template: train-{index:05d}-of-00106.parquet
+    max_shard_index: 105
+    num_train_shards: 8
+    val_shard_index: 105
     num_download_workers: 2
   - name: nemotron_math_4plus
     source: https://huggingface.co/datasets/nvidia/Nemotron-CC-Math-v1/resolve/main/4plus

@@ -11,6 +11,7 @@ class DatasetConfig:
     split: str = "train"
     weight: float = 1.0
     local_dir: str | None = None
+    text_field: str = "text"
     shard_glob: str = "*.parquet"
     max_shards: int | None = None
     filename_template: str = "shard_{index:05d}.parquet"

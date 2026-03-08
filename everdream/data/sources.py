@@ -8,6 +8,7 @@ from multiprocessing import Pool
 
 import pyarrow.parquet as pq
 import requests
+from huggingface_hub import hf_hub_download
 
 from everdream.config.schema import DatasetConfig
 from everdream.runtime.distributed import get_base_dir, print0
@@ -59,7 +60,21 @@ def document_batches(spec: DatasetConfig, split: str, start: int = 0, step: int 
         pf = pq.ParquetFile(filepath)
         for rg_idx in range(start, pf.num_row_groups, step):
             rg = pf.read_row_group(rg_idx)
-            yield rg.column("text").to_pylist()
+            field = spec.text_field
+            if field not in rg.schema.names:
+                cols = ", ".join(rg.schema.names)
+                if spec.name.startswith("stack_edu"):
+                    raise ValueError(
+                        f"Dataset {spec.name} does not contain the configured text field '{field}'. "
+                        f"Available columns: {cols}. "
+                        f"Stack-Edu parquet on Hugging Face contains metadata/SWHIDs, not file contents. "
+                        f"It cannot be used directly as a text corpus in everdream without a separate content-fetch step."
+                    )
+                raise ValueError(
+                    f"Dataset {spec.name} does not contain the configured text field '{field}'. "
+                    f"Available columns: {cols}."
+                )
+            yield rg.column(field).to_pylist()
 
 
 def _download_one(args: tuple[str, str, str, str]) -> bool:
@@ -67,19 +82,34 @@ def _download_one(args: tuple[str, str, str, str]) -> bool:
     if os.path.exists(filepath):
         return True
     tmp = filepath + ".tmp"
-    headers = {}
-    if hf_token and "huggingface.co" in url:
-        headers["Authorization"] = f"Bearer {hf_token}"
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
         try:
-            response = requests.get(url, stream=True, timeout=60, headers=headers)
-            response.raise_for_status()
-            with open(tmp, "wb") as handle:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        handle.write(chunk)
-            os.replace(tmp, filepath)
+            if "huggingface.co/datasets/" in url:
+                prefix = "https://huggingface.co/datasets/"
+                repo_and_path = url.split(prefix, 1)[1]
+                repo_id, _, file_path = repo_and_path.partition("/resolve/main/")
+                if not repo_id or not file_path:
+                    raise ValueError(f"Unsupported Hugging Face dataset URL: {url}")
+                downloaded = hf_hub_download(
+                    repo_id=repo_id,
+                    filename=file_path,
+                    repo_type="dataset",
+                    token=hf_token or None,
+                    local_dir=os.path.dirname(filepath),
+                    local_dir_use_symlinks=False,
+                    force_download=False,
+                )
+                if downloaded != filepath and os.path.abspath(downloaded) != os.path.abspath(filepath):
+                    os.replace(downloaded, filepath)
+            else:
+                response = requests.get(url, stream=True, timeout=60)
+                response.raise_for_status()
+                with open(tmp, "wb") as handle:
+                    for chunk in response.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            handle.write(chunk)
+                os.replace(tmp, filepath)
             return True
         except Exception as exc:
             for candidate in (tmp, filepath):
