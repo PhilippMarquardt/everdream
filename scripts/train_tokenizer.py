@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from everdream.config.load import load_config
+from everdream.common import print_banner
 from everdream.data.dataloader import _weighted_document_batches
 from everdream.data.sources import ensure_dataset_ready
 from everdream.data.tokenizer import HuggingFaceTokenizer, RustBPETokenizer, save_token_bytes
+from everdream.runtime.notebook import init_notebook
 from everdream.runtime.distributed import print0
 
 
@@ -64,7 +67,20 @@ def main():
     parser = argparse.ArgumentParser(description="Train an everdream tokenizer from the configured dataset mix")
     parser.add_argument("--config", required=True)
     args = parser.parse_args()
+    print_banner()
     cfg = load_config(args.config)
+    if cfg.runtime.hf_token:
+        os.environ["HF_TOKEN"] = cfg.runtime.hf_token
+    if cfg.runtime.wandb_api_key:
+        os.environ["WANDB_API_KEY"] = cfg.runtime.wandb_api_key
+    if cfg.runtime.notebook:
+        init_notebook(
+            mount_drive=cfg.runtime.mount_drive,
+            drive_path=cfg.runtime.drive_path,
+            install_gpu_extras=cfg.runtime.install_gpu_extras,
+            install_moe=cfg.runtime.install_moe,
+            install_hybrid=cfg.runtime.install_hybrid,
+        )
     train_tokenizer(cfg)
 
 
