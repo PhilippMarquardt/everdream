@@ -1,0 +1,43 @@
+runtime:
+  run_name: tokenizer-train
+  notebook: false
+  seed: 42
+
+tokenizer:
+  source: local
+  trainer: rustbpe
+  output_dir: tokenizer
+  vocab_size: 32768
+  ensure_chat_special_tokens: true
+  train_split: train
+  train_max_chars: 2000000000
+  train_doc_cap: 10000
+  train_tokenizer_batch_size: 128
+
+datasets:
+  - name: climbmix
+    source: https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resolve/main
+    local_dir: datasets/climbmix-400b-shuffle
+    weight: 0.8
+    max_shard_index: 6542
+    num_train_shards: 170
+    val_shard_index: 6542
+    num_download_workers: 4
+  - name: stack_edu_python
+    source: https://huggingface.co/datasets/HuggingFaceTB/stack-edu/resolve/main/Python
+    local_dir: datasets/stack-edu-python
+    weight: 0.1
+    filename_template: train-{index:05d}-of-00005.parquet
+    max_shard_index: 4
+    num_train_shards: 4
+    val_shard_index: 4
+    num_download_workers: 2
+  - name: nemotron_math_4plus
+    source: https://huggingface.co/datasets/nvidia/Nemotron-CC-Math-v1/resolve/main/4plus
+    local_dir: datasets/nemotron-cc-math-4plus
+    weight: 0.1
+    filename_template: part_{index:06d}.parquet
+    max_shard_index: 45
+    num_train_shards: 20
+    val_shard_index: 45
+    num_download_workers: 2

@@ -118,7 +118,11 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
             ensure_dataset_ready(spec)
     if dist.is_initialized():
         dist.barrier()
-    tokenizer = get_tokenizer(tokenizer_dir=cfg.tokenizer.path, source=cfg.tokenizer.source)
+    tokenizer = get_tokenizer(
+        tokenizer_dir=cfg.tokenizer.path,
+        source=cfg.tokenizer.source,
+        ensure_chat_special_tokens=cfg.tokenizer.ensure_chat_special_tokens,
+    )
     vocab_size = tokenizer.get_vocab_size()
     model = build_model(cfg.model, vocab_size=vocab_size, sequence_len=cfg.training.max_seq_len, runtime_cfg=cfg.runtime)
     if hasattr(model, 'to_empty'):

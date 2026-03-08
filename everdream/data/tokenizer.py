@@ -11,17 +11,11 @@ import copy
 from functools import lru_cache
 
 SPECIAL_TOKENS = [
-    # every document begins with the Beginning of Sequence (BOS) token that delimits documents
-    "<|bos|>",
-    # tokens below are only used during finetuning to render Conversations into token ids
-    "<|user_start|>", # user messages
-    "<|user_end|>",
-    "<|assistant_start|>", # assistant messages
-    "<|assistant_end|>",
-    "<|python_start|>", # assistant invokes python REPL tool
-    "<|python_end|>",
-    "<|output_start|>", # python REPL outputs back to assistant
-    "<|output_end|>",
+    # Qwen/ChatML-style text-only special tokens:
+    # one document delimiter token and two chat boundary tokens.
+    "<|endoftext|>",
+    "<|im_start|>",
+    "<|im_end|>",
 ]
 
 # NOTE: this split pattern deviates from GPT-4 in that we use \p{N}{1,2} instead of \p{N}{1,3}
@@ -42,18 +36,53 @@ class HuggingFaceTokenizer:
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
 
+    @staticmethod
+    def _conversation_special_tokens():
+        # For HF tokenizers that already have a native BOS/EOS pair (e.g. Mistral),
+        # keep those native tokens and only add the text-only ChatML markers.
+        return [tok for tok in SPECIAL_TOKENS if tok != "<|endoftext|>"]
+
+    @staticmethod
+    def _ensure_special_tokens(tokenizer, ensure_chat_special_tokens: bool):
+        if not ensure_chat_special_tokens:
+            return tokenizer
+        if not hasattr(tokenizer, "add_special_tokens"):
+            return tokenizer
+
+        existing = set()
+        if hasattr(tokenizer, "get_vocab"):
+            existing.update(tokenizer.get_vocab().keys())
+        if hasattr(tokenizer, "get_added_vocab"):
+            existing.update(tokenizer.get_added_vocab().keys())
+
+        missing = [tok for tok in HuggingFaceTokenizer._conversation_special_tokens() if tok not in existing]
+        if missing:
+            try:
+                tokenizer.add_special_tokens({"additional_special_tokens": missing}, replace_additional_special_tokens=False)
+            except TypeError:
+                current_additional = list(getattr(tokenizer, "additional_special_tokens", []) or [])
+                merged = list(dict.fromkeys(current_additional + missing))
+                tokenizer.add_special_tokens({"additional_special_tokens": merged})
+        return tokenizer
+
     @classmethod
-    def from_pretrained(cls, hf_path):
-        # init from a HuggingFace pretrained tokenizer (e.g. "gpt2")
+    def from_pretrained(cls, hf_path, ensure_chat_special_tokens=True):
+        # init from a HuggingFace pretrained tokenizer (e.g. "mistralai/Mistral-7B-v0.3")
         from transformers import AutoTokenizer
         tokenizer = AutoTokenizer.from_pretrained(hf_path)
+        tokenizer = cls._ensure_special_tokens(tokenizer, ensure_chat_special_tokens)
         return cls(tokenizer)
 
     @classmethod
-    def from_directory(cls, tokenizer_dir):
+    def from_directory(cls, tokenizer_dir, ensure_chat_special_tokens=True):
         # init from a local directory on disk (e.g. "out/tokenizer")
+        from transformers import AutoTokenizer
         tokenizer_path = os.path.join(tokenizer_dir, "tokenizer.json")
-        tokenizer = HFTokenizer.from_file(tokenizer_path)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir)
+        except Exception:
+            tokenizer = HFTokenizer.from_file(tokenizer_path)
+        tokenizer = cls._ensure_special_tokens(tokenizer, ensure_chat_special_tokens)
         return cls(tokenizer)
 
     @classmethod
@@ -99,15 +128,17 @@ class HuggingFaceTokenizer:
         return len(self.tokenizer)
 
     def get_special_tokens(self):
-        if hasattr(self.tokenizer, "get_added_tokens_decoder"):
-            special_tokens_map = self.tokenizer.get_added_tokens_decoder()
-            return [w.content for w in special_tokens_map.values()]
         tokens = []
         for attr in ("bos_token", "eos_token", "pad_token", "unk_token"):
             val = getattr(self.tokenizer, attr, None)
             if val is not None:
                 tokens.append(val)
-        return tokens
+        if hasattr(self.tokenizer, "get_added_vocab"):
+            tokens.extend(self.tokenizer.get_added_vocab().keys())
+        elif hasattr(self.tokenizer, "get_added_tokens_decoder"):
+            special_tokens_map = self.tokenizer.get_added_tokens_decoder()
+            tokens.extend(w.content for w in special_tokens_map.values())
+        return list(dict.fromkeys(tokens))
 
     def id_to_token(self, id):
         if hasattr(self.tokenizer, "id_to_token"):
@@ -134,7 +165,16 @@ class HuggingFaceTokenizer:
         # encode a single special token via exact match
         if hasattr(self.tokenizer, "token_to_id"):
             return self.tokenizer.token_to_id(text)
-        return self.tokenizer.convert_tokens_to_ids(text)
+        if hasattr(self.tokenizer, "get_added_vocab") and text in self.tokenizer.get_added_vocab():
+            return self.tokenizer.get_added_vocab()[text]
+        if hasattr(self.tokenizer, "get_vocab") and text in self.tokenizer.get_vocab():
+            return self.tokenizer.get_vocab()[text]
+        token_id = self.tokenizer.convert_tokens_to_ids(text)
+        unk_id = getattr(self.tokenizer, "unk_token_id", None)
+        unk_token = getattr(self.tokenizer, "unk_token", None)
+        if token_id == unk_id and text != unk_token:
+            return None
+        return token_id
 
     def get_bos_token_id(self):
         # Different HuggingFace models use different BOS tokens and there is little consistency
@@ -145,7 +185,7 @@ class HuggingFaceTokenizer:
         # 2) attempt to find a <|bos|> token
         if bos is None:
             bos = self.encode_special("<|bos|>")
-        # 3) if that fails, attempt to find a <|endoftext|> token (e.g. GPT-2 models)
+        # 3) if that fails, attempt to find a <|endoftext|> token (e.g. GPT/Qwen-style local tokenizers)
         if bos is None:
             bos = self.encode_special("<|endoftext|>")
         # 4) final fallback to EOS only if the tokenizer truly has no BOS metadata
@@ -217,23 +257,22 @@ class RustBPETokenizer:
             mergeable_ranks=mergeable_ranks, # dict[bytes, int] (token bytes -> merge priority rank)
             special_tokens=special_tokens, # dict[str, int] (special token name -> token id)
         )
-        return cls(enc, "<|bos|>")
+        return cls(enc, "<|endoftext|>")
 
     @classmethod
     def from_directory(cls, tokenizer_dir):
         pickle_path = os.path.join(tokenizer_dir, "tokenizer.pkl")
         with open(pickle_path, "rb") as f:
             enc = pickle.load(f)
-        return cls(enc, "<|bos|>")
+        return cls(enc, "<|endoftext|>")
 
     @classmethod
     def from_pretrained(cls, tiktoken_name):
         # https://github.com/openai/tiktoken/blob/eedc8563/tiktoken_ext/openai_public.py
         enc = tiktoken.get_encoding(tiktoken_name)
-        # tiktoken calls the special document delimiter token "<|endoftext|>"
-        # yes this is confusing because this token is almost always PREPENDED to the beginning of the document
-        # it most often is used to signal the start of a new sequence to the LLM during inference etc.
-        # so in nanoChat we always use "<|bos|>" short for "beginning of sequence", but historically it is often called "<|endoftext|>".
+        # tiktoken calls the special document delimiter token "<|endoftext|>".
+        # We use that as the BOS/document delimiter for locally trained tokenizers,
+        # which matches common GPT/Qwen-style text-only tokenization setups.
         return cls(enc, "<|endoftext|>")
 
     def get_vocab_size(self):
@@ -323,10 +362,8 @@ class RustBPETokenizer:
 
         # fetch all the special tokens we need
         bos = self.get_bos_token_id()
-        user_start, user_end = self.encode_special("<|user_start|>"), self.encode_special("<|user_end|>")
-        assistant_start, assistant_end = self.encode_special("<|assistant_start|>"), self.encode_special("<|assistant_end|>")
-        python_start, python_end = self.encode_special("<|python_start|>"), self.encode_special("<|python_end|>")
-        output_start, output_end = self.encode_special("<|output_start|>"), self.encode_special("<|output_end|>")
+        im_start = self.encode_special("<|im_start|>")
+        im_end = self.encode_special("<|im_end|>")
 
         # now we can tokenize the conversation
         add_tokens(bos, 0)
@@ -339,40 +376,35 @@ class RustBPETokenizer:
             # content can be either a simple string or a list of parts (e.g. containing tool calls)
             content = message["content"]
 
+            add_tokens(im_start, 0)
+            role_ids = self.encode(message["role"])
+            add_tokens(role_ids, 0)
+            add_tokens(self.encode("\n"), 0)
+
             if message["role"] == "user":
                 assert isinstance(content, str), "User messages are simply expected to be strings"
                 value_ids = self.encode(content)
-                add_tokens(user_start, 0)
                 add_tokens(value_ids, 0)
-                add_tokens(user_end, 0)
             elif message["role"] == "assistant":
-                add_tokens(assistant_start, 0)
                 if isinstance(content, str):
-                    # simple string => simply add the tokens
                     value_ids = self.encode(content)
                     add_tokens(value_ids, 1)
                 elif isinstance(content, list):
+                    rendered_parts = []
                     for part in content:
-                        value_ids = self.encode(part["text"])
-                        if part["type"] == "text":
-                            # string part => simply add the tokens
-                            add_tokens(value_ids, 1)
-                        elif part["type"] == "python":
-                            # python tool call => add the tokens inside <|python_start|> and <|python_end|>
-                            add_tokens(python_start, 1)
-                            add_tokens(value_ids, 1)
-                            add_tokens(python_end, 1)
-                        elif part["type"] == "python_output":
-                            # python output => add the tokens inside <|output_start|> and <|output_end|>
-                            # none of these tokens are supervised because the tokens come from Python at test time
-                            add_tokens(output_start, 0)
-                            add_tokens(value_ids, 0)
-                            add_tokens(output_end, 0)
-                        else:
-                            raise ValueError(f"Unknown part type: {part['type']}")
+                        if part["type"] != "text":
+                            raise ValueError(f"Text-only chat profile does not support part type: {part['type']}")
+                        rendered_parts.append(part["text"])
+                    value_ids = self.encode("".join(rendered_parts))
+                    add_tokens(value_ids, 1)
                 else:
                     raise ValueError(f"Unknown content type: {type(content)}")
-                add_tokens(assistant_end, 1)
+            elif message["role"] == "system":
+                assert isinstance(content, str), "System messages are expected to be plain text strings"
+                add_tokens(self.encode(content), 0)
+            else:
+                raise ValueError(f"Unknown role: {message['role']}")
+            add_tokens(im_end, 1 if message["role"] == "assistant" else 0)
 
         # truncate to max_tokens tokens MAX (helps prevent OOMs)
         ids = ids[:max_tokens]
@@ -410,21 +442,29 @@ class RustBPETokenizer:
         ids, mask = self.render_conversation(conversation)
 
         # Finally, to prime the Assistant for a completion, append the Assistant start token
-        assistant_start = self.encode_special("<|assistant_start|>")
-        ids.append(assistant_start)
+        im_start = self.encode_special("<|im_start|>")
+        im_end = self.encode_special("<|im_end|>")
+        assistant_ids = self.encode("assistant")
+        ids.append(im_start)
+        ids.extend(assistant_ids)
+        ids.extend(self.encode("\n"))
+        assert ids[-1] != im_end
         return ids
 
 # -----------------------------------------------------------------------------
 # nanochat-specific convenience functions
 
-def get_tokenizer(tokenizer_dir=None, source="local"):
+def get_tokenizer(tokenizer_dir=None, source="local", ensure_chat_special_tokens=True):
     from everdream.common import get_base_dir
     if source == "hf":
         assert tokenizer_dir is not None, "HF tokenizer source requires a pretrained model/tokenizer id in tokenizer.path"
-        return HuggingFaceTokenizer.from_pretrained(tokenizer_dir)
+        return HuggingFaceTokenizer.from_pretrained(tokenizer_dir, ensure_chat_special_tokens=ensure_chat_special_tokens)
     if tokenizer_dir is None:
         base_dir = get_base_dir()
         tokenizer_dir = os.path.join(base_dir, "tokenizer")
+    tokenizer_json = os.path.join(tokenizer_dir, "tokenizer.json")
+    if os.path.exists(tokenizer_json):
+        return HuggingFaceTokenizer.from_directory(tokenizer_dir, ensure_chat_special_tokens=ensure_chat_special_tokens)
     return RustBPETokenizer.from_directory(tokenizer_dir)
 
 def get_token_bytes(device="cpu", tokenizer=None, tokenizer_dir=None, source="local"):
@@ -451,3 +491,23 @@ def get_token_bytes(device="cpu", tokenizer=None, tokenizer_dir=None, source="lo
     with open(token_bytes_path, "rb") as f:
         token_bytes = torch.load(f, map_location=device)
     return token_bytes
+
+
+def save_token_bytes(tokenizer, tokenizer_dir):
+    import torch
+
+    vocab_size = tokenizer.get_vocab_size()
+    special_set = set(tokenizer.get_special_tokens())
+    token_bytes = []
+    for token_id in range(vocab_size):
+        token_str = tokenizer.id_to_token(token_id)
+        if token_str in special_set:
+            token_bytes.append(0)
+        else:
+            token_bytes.append(len(tokenizer.decode([token_id]).encode("utf-8")))
+    token_bytes = torch.tensor(token_bytes, dtype=torch.int32, device="cpu")
+    os.makedirs(tokenizer_dir, exist_ok=True)
+    token_bytes_path = os.path.join(tokenizer_dir, "token_bytes.pt")
+    with open(token_bytes_path, "wb") as f:
+        torch.save(token_bytes, f)
+    return token_bytes_path

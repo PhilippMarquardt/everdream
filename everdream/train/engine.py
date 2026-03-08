@@ -155,9 +155,6 @@ class RowState:
     # Per-row state tracking during generation
     def __init__(self, current_tokens=None):
         self.current_tokens = current_tokens or [] # Current token sequence for this row
-        self.forced_tokens = deque() # Queue of tokens to force inject
-        self.in_python_block = False # Whether we are inside a python block
-        self.python_expr_tokens = [] # Tokens of the current python expression
         self.completed = False # Whether this row has completed generation
 
 class Engine:
@@ -181,13 +178,9 @@ class Engine:
         rng = torch.Generator(device=device)
         rng.manual_seed(seed)
 
-        # Get the special tokens we need to coordinate the tool use state machine
+        # Text-only chat profile terminates on end-of-message or a fresh BOS/doc delimiter.
         get_special = lambda s: self.tokenizer.encode_special(s)
-        python_start = get_special("<|python_start|>")
-        python_end = get_special("<|python_end|>")
-        output_start = get_special("<|output_start|>")
-        output_end = get_special("<|output_end|>")
-        assistant_end = get_special("<|assistant_end|>") # if sampled, ends row
+        im_end = get_special("<|im_end|>")
         bos = self.tokenizer.get_bos_token_id() # if sampled, ends row
 
         # 1) Run a batch 1 prefill of the prompt tokens
@@ -238,32 +231,14 @@ class Engine:
             token_masks = [] # contains the mask (was it sampled (1) or forced (0)?) along each row
             for i, state in enumerate(row_states):
                 # Select the next token in this row
-                is_forced = len(state.forced_tokens) > 0 # are there tokens waiting to be forced in deque?
-                token_masks.append(0 if is_forced else 1) # mask is 0 if forced, 1 if sampled
-                next_token = state.forced_tokens.popleft() if is_forced else sampled_tokens[i]
+                token_masks.append(1)
+                next_token = sampled_tokens[i]
                 token_column.append(next_token)
                 # Update the state of this row to include the next token
                 state.current_tokens.append(next_token)
-                # On <|assistant_end|> or <|bos|>, mark the row as completed
-                if next_token == assistant_end or next_token == bos:
+                # On <|im_end|> or <|bos|>, mark the row as completed
+                if next_token == im_end or next_token == bos:
                     state.completed = True
-                # Handle tool logic
-                if next_token == python_start:
-                    state.in_python_block = True
-                    state.python_expr_tokens = []
-                elif next_token == python_end and state.in_python_block:
-                    state.in_python_block = False
-                    if state.python_expr_tokens:
-                        expr = self.tokenizer.decode(state.python_expr_tokens)
-                        result = use_calculator(expr)
-                        if result is not None:
-                            result_tokens = self.tokenizer.encode(str(result))
-                            state.forced_tokens.append(output_start)
-                            state.forced_tokens.extend(result_tokens)
-                            state.forced_tokens.append(output_end)
-                    state.python_expr_tokens = []
-                elif state.in_python_block:
-                    state.python_expr_tokens.append(next_token)
 
             # Yield the token column
             yield token_column, token_masks
@@ -279,7 +254,7 @@ class Engine:
         Returns a list of token sequences (list of lists of ints).
         Terminal tokens (assistant_end, bos) are not included in the results.
         """
-        assistant_end = self.tokenizer.encode_special("<|assistant_end|>")
+        assistant_end = self.tokenizer.encode_special("<|im_end|>")
         bos = self.tokenizer.get_bos_token_id()
         results = [tokens.copy() for _ in range(num_samples)]
         masks = [[0] * len(tokens) for _ in range(num_samples)]

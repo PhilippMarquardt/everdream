@@ -29,6 +29,9 @@ def _load_mapping(path: Path) -> dict:
 def load_config(path: str | Path) -> EverdreamConfig:
     path = Path(path)
     raw = _load_mapping(path)
+    tok_raw = dict(raw.get("tokenizer", {}))
+    if "ensure_nanochat_special_tokens" in tok_raw and "ensure_chat_special_tokens" not in tok_raw:
+        tok_raw["ensure_chat_special_tokens"] = tok_raw.pop("ensure_nanochat_special_tokens")
     family = raw.get("model", {}).get("family", "dense")
     model_cls = {
         "dense": DenseNanochatConfig,
@@ -39,7 +42,7 @@ def load_config(path: str | Path) -> EverdreamConfig:
     }[family]
     cfg = EverdreamConfig(
         runtime=RuntimeConfig(**raw.get("runtime", {})),
-        tokenizer=TokenizerConfig(**raw.get("tokenizer", {})),
+        tokenizer=TokenizerConfig(**tok_raw),
         training=TrainingConfig(**raw.get("training", {})),
         model=asdict(model_cls(**raw.get("model", {}))),
         datasets=[DatasetConfig(**d) for d in raw.get("datasets", [])],

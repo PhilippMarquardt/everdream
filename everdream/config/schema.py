@@ -25,6 +25,13 @@ class TokenizerConfig:
     source: str = "local"
     path: str | None = None
     vocab_size: int = 32768
+    ensure_chat_special_tokens: bool = True
+    trainer: str = "rustbpe"
+    output_dir: str = ""
+    train_split: str = "train"
+    train_max_chars: int = 2_000_000_000
+    train_doc_cap: int = 10_000
+    train_tokenizer_batch_size: int = 128
 
 
 @dataclass
