@@ -12,6 +12,7 @@ class DatasetConfig:
     weight: float = 1.0
     local_dir: str | None = None
     text_field: str = "text"
+    hf_data_dir: str | None = None
     shard_glob: str = "*.parquet"
     max_shards: int | None = None
     filename_template: str = "shard_{index:05d}.parquet"

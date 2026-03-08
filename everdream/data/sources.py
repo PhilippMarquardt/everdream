@@ -8,6 +8,7 @@ from multiprocessing import Pool
 
 import pyarrow.parquet as pq
 import requests
+from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 
 from everdream.config.schema import DatasetConfig
@@ -51,6 +52,21 @@ def build_prefetch_filenames(spec: DatasetConfig) -> list[str]:
 
 
 def document_batches(spec: DatasetConfig, split: str, start: int = 0, step: int = 1):
+    if spec.hf_data_dir:
+        ds = load_dataset(spec.source, data_dir=spec.hf_data_dir, split=spec.split, streaming=True)
+        for idx, row in enumerate(ds):
+            if idx < start or ((idx - start) % step) != 0:
+                continue
+            field = spec.text_field
+            if field not in row:
+                cols = ", ".join(sorted(row.keys()))
+                raise ValueError(
+                    f"Dataset {spec.name} does not contain the configured text field '{field}'. "
+                    f"Available fields: {cols}."
+                )
+            yield [row[field]]
+        return
+
     parquet_paths = list_parquet_files(spec)
     if split == "val":
         parquet_paths = parquet_paths[-1:]
@@ -136,6 +152,8 @@ def download_dataset(spec: DatasetConfig, filenames: list[str], workers: int = 4
 
 
 def ensure_dataset_ready(spec: DatasetConfig) -> None:
+    if spec.hf_data_dir:
+        return
     target_dir = resolve_dataset_dir(spec)
     target_dir.mkdir(parents=True, exist_ok=True)
     if any(target_dir.glob(spec.shard_glob)):
