@@ -156,14 +156,20 @@ def ensure_dataset_ready(spec: DatasetConfig) -> None:
         return
     target_dir = resolve_dataset_dir(spec)
     target_dir.mkdir(parents=True, exist_ok=True)
-    if any(target_dir.glob(spec.shard_glob)):
-        return
     if not spec.source.startswith("http"):
-        raise FileNotFoundError(f"No parquet shards found for dataset {spec.name} in {target_dir}")
+        if not any(target_dir.glob(spec.shard_glob)):
+            raise FileNotFoundError(f"No parquet shards found for dataset {spec.name} in {target_dir}")
+        return
     filenames = build_prefetch_filenames(spec)
-    print0(f"Prefetching {len(filenames)} shards for dataset {spec.name} into {target_dir}")
-    download_dataset(spec, filenames, workers=spec.num_download_workers)
-    if not any(target_dir.glob(spec.shard_glob)):
+    missing = [name for name in filenames if not (target_dir / name).exists()]
+    if not missing:
+        return
+    print0(
+        f"Prefetching {len(missing)}/{len(filenames)} missing shards for dataset {spec.name} into {target_dir}"
+    )
+    download_dataset(spec, missing, workers=spec.num_download_workers)
+    remaining_missing = [name for name in filenames if not (target_dir / name).exists()]
+    if remaining_missing:
         raise FileNotFoundError(f"Dataset prefetch completed but no parquet shards found for dataset {spec.name} in {target_dir}")
 
 
