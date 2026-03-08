@@ -7,6 +7,10 @@ import sys
 import torch
 
 
+def _drive_is_mounted(drive_path: str) -> bool:
+    return os.path.isdir(drive_path) and os.path.isdir(os.path.join(drive_path, "MyDrive"))
+
+
 def init_notebook(
     mount_drive: bool = False,
     drive_path: str = "/content/drive",
@@ -19,8 +23,24 @@ def init_notebook(
     except ImportError:
         drive = None
 
-    if mount_drive and drive is not None:
-        drive.mount(drive_path)
+    if mount_drive:
+        if _drive_is_mounted(drive_path):
+            pass
+        elif drive is not None:
+            try:
+                drive.mount(drive_path)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Google Drive is not mounted and cannot be mounted from this Python process. "
+                    f"Mount Drive in a notebook cell first, then rerun the script, or set runtime.mount_drive=false. "
+                    f"Target mount path: {drive_path}"
+                ) from exc
+        else:
+            raise RuntimeError(
+                f"Google Drive mount requested but google.colab is unavailable in this process. "
+                f"Mount Drive manually first or set runtime.mount_drive=false. "
+                f"Target mount path: {drive_path}"
+            )
 
     pkgs = [
         "transformers",
