@@ -1,0 +1,32 @@
+[project]
+name = "everdream"
+version = "0.1.0"
+description = "LLM training project with notebook bootstrap, nanochat-style distributed training, weighted parquet mixing, FP8, and FA3."
+requires-python = ">=3.10"
+dependencies = [
+  "datasets",
+  "filelock",
+  "Jinja2",
+  "numpy",
+  "pyarrow",
+  "PyYAML",
+  "requests",
+  "tokenizers",
+  "torch",
+  "transformers",
+  "wandb",
+]
+
+[project.optional-dependencies]
+gpu = [
+  "kernels>=0.11.7",
+]
+moe = [
+  "megablocks",
+]
+hybrid = [
+  "flash-linear-attention",
+]
+
+[tool.setuptools.packages.find]
+include = ["everdream*"]
