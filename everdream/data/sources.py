@@ -67,10 +67,14 @@ def _download_one(args: tuple[str, str, str]) -> bool:
     if os.path.exists(filepath):
         return True
     tmp = filepath + ".tmp"
+    headers = {}
+    hf_token = os.environ.get("HF_TOKEN", "").strip()
+    if hf_token and "huggingface.co" in url:
+        headers["Authorization"] = f"Bearer {hf_token}"
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
         try:
-            response = requests.get(url, stream=True, timeout=60)
+            response = requests.get(url, stream=True, timeout=60, headers=headers)
             response.raise_for_status()
             with open(tmp, "wb") as handle:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
@@ -78,7 +82,7 @@ def _download_one(args: tuple[str, str, str]) -> bool:
                         handle.write(chunk)
             os.replace(tmp, filepath)
             return True
-        except Exception:
+        except Exception as exc:
             for candidate in (tmp, filepath):
                 if os.path.exists(candidate):
                     try:
@@ -87,7 +91,8 @@ def _download_one(args: tuple[str, str, str]) -> bool:
                         pass
             if attempt < max_attempts:
                 time.sleep(2 ** attempt)
-    print0(f"Failed to download {name}: {url}")
+            else:
+                print0(f"Failed to download {name}: {url} ({type(exc).__name__}: {exc})")
     return False
 
 
