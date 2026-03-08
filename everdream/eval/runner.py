@@ -87,14 +87,20 @@ def evaluate_core(model, tokenizer, device, max_per_task=-1):
 def generate_samples(model, tokenizer, prompts: list[str], max_tokens: int = 64):
     if not hasattr(model, "generate"):
         return None
+    was_training = model.training
+    model.eval()
     outputs = []
-    for prompt in prompts:
-        prompt_tokens = tokenizer.encode(prompt, prepend=tokenizer.get_bos_token_id())
-        generated = []
-        stream = model.generate(prompt_tokens, max_tokens=max_tokens, temperature=0.0)
-        for token in stream:
-            generated.append(token)
-        outputs.append(tokenizer.decode(prompt_tokens + generated))
+    try:
+        for prompt in prompts:
+            prompt_tokens = tokenizer.encode(prompt, prepend=tokenizer.get_bos_token_id())
+            generated = []
+            stream = model.generate(prompt_tokens, max_tokens=max_tokens, temperature=0.0)
+            for token in stream:
+                generated.append(token)
+            outputs.append(tokenizer.decode(prompt_tokens + generated))
+    finally:
+        if was_training:
+            model.train()
     return outputs
 
 

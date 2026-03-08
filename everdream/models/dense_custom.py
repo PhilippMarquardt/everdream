@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint_utils
 
-from everdream.common import get_dist_info
+from everdream.common import COMPUTE_DTYPE, get_dist_info
 from everdream.config.schema import DenseCustomConfig
 from everdream.flash_attention import flash_attn
 from everdream.optim import DistMuonAdamW, MuonAdamW
@@ -260,7 +260,8 @@ class GPT(nn.Module):
             rng.manual_seed(seed)
         ids = torch.tensor([idx], dtype=torch.long, device=device)
         for _ in range(max_tokens):
-            logits, _ = self(ids[:, -self.config.sequence_len :])
+            with torch.autocast(device_type=device.type, dtype=COMPUTE_DTYPE):
+                logits, _ = self(ids[:, -self.config.sequence_len :])
             logits = logits[:, -1, :] / temperature
             if top_k:
                 v, _ = torch.topk(logits, top_k)
