@@ -68,10 +68,15 @@ datasets:
     val_shard_index: 6542
     num_download_workers: 4
   - name: the_stack_dedup_python
-    source: bigcode/the-stack-dedup
+    source: https://huggingface.co/datasets/bigcode/the-stack-dedup/resolve/main/data/python
+    local_dir: /content/drive/MyDrive/everdream/the-stack-dedup-python
     weight: 0.1
-    hf_data_dir: data/python
     text_field: content
+    filename_template: data-{index:05d}-of-00144.parquet
+    max_shard_index: 143
+    num_train_shards: 8
+    val_shard_index: 143
+    num_download_workers: 2
   - name: nemotron_math_4plus
     source: https://huggingface.co/datasets/nvidia/Nemotron-CC-Math-v1/resolve/main/4plus
     local_dir: /content/drive/MyDrive/everdream/nemotron-cc-math-4plus
