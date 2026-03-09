@@ -54,7 +54,6 @@ def build_prefetch_filenames(spec: DatasetConfig) -> list[str]:
 def document_batches(spec: DatasetConfig, split: str, start: int = 0, step: int = 1):
     if spec.hf_data_dir:
         ds = load_dataset(spec.source, data_dir=spec.hf_data_dir, split=spec.split, streaming=True)
-        batch = []
         for idx, row in enumerate(ds):
             if idx < start or ((idx - start) % step) != 0:
                 continue
@@ -65,12 +64,7 @@ def document_batches(spec: DatasetConfig, split: str, start: int = 0, step: int 
                     f"Dataset {spec.name} does not contain the configured text field '{field}'. "
                     f"Available fields: {cols}."
                 )
-            batch.append(row[field])
-            if len(batch) >= 1024:
-                yield batch
-                batch = []
-        if batch:
-            yield batch
+            yield [row[field]]
         return
 
     parquet_paths = list_parquet_files(spec)
