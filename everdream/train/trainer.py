@@ -184,9 +184,16 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
         target_tokens = active_params * cfg.training.target_param_data_ratio
         num_iterations = max(1, round(target_tokens / tokens_per_step))
 
+    # Weight decay scaling (ref: Nanochat T_epoch framework, arxiv 2405.13698)
+    B_REF = 524288
+    D_REF = 10.5 * (12 * (4 * 768**2 + 2 * 768 * 4 * 768) + 768 * vocab_size)
+    total_tokens = num_iterations * tokens_per_step
+    scaled_wd = cfg.training.weight_decay * math.sqrt(tokens_per_step / B_REF) * (D_REF / total_tokens)
+
     print0(f'Train iterations: {num_iterations} | Active params: {active_params:,}')
     print0(f'Tokens/step: {tokens_per_step:,} | Target tokens: {num_iterations * tokens_per_step:,}')
     print0(f'FLOPs/token: {num_flops_per_token:.2e} | FLOPs/step: {flops_per_step:.2e}')
+    print0(f'Weight decay scaled: {cfg.training.weight_decay} -> {scaled_wd:.6f}')
     if device.type == 'cuda':
         gpu_name = torch.cuda.get_device_name(0)
         print0(f'GPU: {gpu_name} | Peak FLOPS (BF16): {get_peak_flops(gpu_name):.2e}')
@@ -273,8 +280,14 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
     start_step = max(0, cfg.training.resume_from_step)
     for step in range(start_step + 1, num_iterations + 1):
         lrm = get_lr_multiplier(step)
+        muon_frac = min(step / 300, 1)
+        muon_momentum = (1 - muon_frac) * 0.85 + muon_frac * 0.95
+        muon_wd = scaled_wd * (1 - step / num_iterations)
         for group in optimizer.param_groups:
             group['lr'] = group['initial_lr'] * lrm
+            if group.get('kind') == 'muon':
+                group['momentum'] = muon_momentum
+                group['weight_decay'] = muon_wd
         optimizer.zero_grad(set_to_none=True)
         total_acc = ce_acc = lb_acc = rz_acc = 0.0
         for _ in range(grad_accum):

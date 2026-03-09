@@ -188,6 +188,10 @@ class GPT(nn.Module):
 
     def setup_optimizer(self, unembedding_lr=0.004, embedding_lr=0.3, matrix_lr=0.02, weight_decay=0.0, adam_betas=(0.8, 0.95), scalar_lr=0.5):
         ddp, *_ = get_dist_info()
+        dmodel_lr_scale = (self.config.n_embd / 768) ** -0.5
+        embedding_lr *= dmodel_lr_scale
+        unembedding_lr *= dmodel_lr_scale
+        scalar_lr *= dmodel_lr_scale
         matrix_params = list(self.blocks.parameters())
         embedding_params = list(self.wte.parameters())
         lm_head_params = list(self.lm_head.parameters())
