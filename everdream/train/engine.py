@@ -178,10 +178,10 @@ class Engine:
         rng = torch.Generator(device=device)
         rng.manual_seed(seed)
 
-        # Text-only chat profile terminates on end-of-message or a fresh BOS/doc delimiter.
+        # Text-only Kimi-style profile terminates on end-of-message or EOS.
         get_special = lambda s: self.tokenizer.encode_special(s)
         im_end = get_special("<|im_end|>")
-        bos = self.tokenizer.get_bos_token_id() # if sampled, ends row
+        eos_token = self.tokenizer.get_eos_token_id()
 
         # 1) Run a batch 1 prefill of the prompt tokens
         m = self.model.config
@@ -236,8 +236,8 @@ class Engine:
                 token_column.append(next_token)
                 # Update the state of this row to include the next token
                 state.current_tokens.append(next_token)
-                # On <|im_end|> or <|bos|>, mark the row as completed
-                if next_token == im_end or next_token == bos:
+                # On <|im_end|> or EOS, mark the row as completed.
+                if next_token == im_end or next_token == eos_token:
                     state.completed = True
 
             # Yield the token column
@@ -252,17 +252,17 @@ class Engine:
         """
         Non-streaming batch generation that just returns the final token sequences.
         Returns a list of token sequences (list of lists of ints).
-        Terminal tokens (assistant_end, bos) are not included in the results.
+        Terminal tokens (assistant_end, document delimiter) are not included in the results.
         """
         assistant_end = self.tokenizer.encode_special("<|im_end|>")
-        bos = self.tokenizer.get_bos_token_id()
+        eos_token = self.tokenizer.get_eos_token_id()
         results = [tokens.copy() for _ in range(num_samples)]
         masks = [[0] * len(tokens) for _ in range(num_samples)]
         completed = [False] * num_samples
         for token_column, token_masks in self.generate(tokens, num_samples, **kwargs):
             for i, (token, mask) in enumerate(zip(token_column, token_masks)):
                 if not completed[i]:
-                    if token == assistant_end or token == bos:
+                    if token == assistant_end or token == eos_token:
                         completed[i] = True
                     else:
                         results[i].append(token)
@@ -284,11 +284,10 @@ if __name__ == "__main__":
     ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
     # load the model and tokenizer
     model, tokenizer, meta = load_model("base", device, phase="eval")
-    bos_token_id = tokenizer.get_bos_token_id()
     # common hyperparameters
     kwargs = dict(max_tokens=64, temperature=0.0)
     # set the starting prompt
-    prompt_tokens = tokenizer.encode("The chemical formula of water is", prepend=bos_token_id)
+    prompt_tokens = tokenizer.encode("The chemical formula of water is", prepend=tokenizer.get_bos_token_id())
     # generate the reference sequence using the model.generate() function
     generated_tokens = []
     torch.cuda.synchronize()

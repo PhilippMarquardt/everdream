@@ -31,15 +31,35 @@ datasets:
     val_shard_index: 6542
     num_download_workers: 4
   - name: the_stack_dedup_python
-    source: https://huggingface.co/datasets/bigcode/the-stack-dedup/resolve/main/data/python
-    local_dir: /content/drive/MyDrive/everdream/the-stack-dedup-python
-    weight: 0.1
+    source: bigcode/the-stack-dedup
+    weight: 0.0166666667
+    hf_data_dir: data/python
     text_field: content
-    filename_template: data-{index:05d}-of-00144.parquet
-    max_shard_index: 143
-    num_train_shards: 16
-    val_shard_index: 143
-    num_download_workers: 2
+  - name: the_stack_dedup_javascript
+    source: bigcode/the-stack-dedup
+    weight: 0.0166666667
+    hf_data_dir: data/javascript
+    text_field: content
+  - name: the_stack_dedup_typescript
+    source: bigcode/the-stack-dedup
+    weight: 0.0166666667
+    hf_data_dir: data/typescript
+    text_field: content
+  - name: the_stack_dedup_java
+    source: bigcode/the-stack-dedup
+    weight: 0.0166666667
+    hf_data_dir: data/java
+    text_field: content
+  - name: the_stack_dedup_go
+    source: bigcode/the-stack-dedup
+    weight: 0.0166666666
+    hf_data_dir: data/go
+    text_field: content
+  - name: the_stack_dedup_rust
+    source: bigcode/the-stack-dedup
+    weight: 0.0166666666
+    hf_data_dir: data/rust
+    text_field: content
   - name: nemotron_math_4plus
     source: https://huggingface.co/datasets/nvidia/Nemotron-CC-Math-v1/resolve/main/4plus
     local_dir: /content/drive/MyDrive/everdream/nemotron-cc-math-4plus

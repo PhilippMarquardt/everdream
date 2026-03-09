@@ -262,11 +262,12 @@ class GPT(nn.Module):
         for _ in range(max_tokens):
             with torch.autocast(device_type=device.type, dtype=COMPUTE_DTYPE):
                 logits, _ = self(ids[:, -self.config.sequence_len :])
-            logits = logits[:, -1, :] / temperature
-            if top_k:
-                v, _ = torch.topk(logits, top_k)
-                logits[logits < v[:, [-1]]] = float("-inf")
+            logits = logits[:, -1, :]
             if temperature > 0:
+                logits = logits / temperature
+                if top_k:
+                    v, _ = torch.topk(logits, top_k)
+                    logits[logits < v[:, [-1]]] = float("-inf")
                 next_id = torch.multinomial(F.softmax(logits, -1), 1, generator=rng)
             else:
                 next_id = torch.argmax(logits, dim=-1, keepdim=True)

@@ -213,7 +213,7 @@ def evaluate_example(idx, model, tokenizer, data, device, task_meta):
                 new_end_idxs.append(e)
         tokens, start_idxs, end_idxs = new_tokens, new_start_idxs, new_end_idxs
 
-    pad_token_id = tokenizer.get_bos_token_id()
+    pad_token_id = tokenizer.get_doc_delimiter_id()
     input_ids = stack_sequences(tokens, pad_token_id).to(device)
     losses, predictions = forward_model(model, input_ids)
 

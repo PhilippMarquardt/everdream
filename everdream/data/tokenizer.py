@@ -11,9 +11,9 @@ import copy
 from functools import lru_cache
 
 SPECIAL_TOKENS = [
-    # Qwen/ChatML-style text-only special tokens:
-    # one document delimiter token and two chat boundary tokens.
-    "<|endoftext|>",
+    # Text-only Kimi-style special tokens:
+    # explicit BOS plus ChatML-style message delimiters.
+    "[BOS]",
     "<|im_start|>",
     "<|im_end|>",
 ]
@@ -39,8 +39,8 @@ class HuggingFaceTokenizer:
     @staticmethod
     def _conversation_special_tokens():
         # For HF tokenizers that already have a native BOS/EOS pair (e.g. Mistral),
-        # keep those native tokens and only add the text-only ChatML markers.
-        return [tok for tok in SPECIAL_TOKENS if tok != "<|endoftext|>"]
+        # keep those native tokens and only add the Kimi-style BOS and ChatML markers.
+        return list(SPECIAL_TOKENS)
 
     @staticmethod
     def _ensure_special_tokens(tokenizer, ensure_chat_special_tokens: bool):
@@ -182,18 +182,28 @@ class HuggingFaceTokenizer:
         # 1) prefer the tokenizer's declared BOS token id when present
         if bos is None:
             bos = getattr(self.tokenizer, "bos_token_id", None)
-        # 2) attempt to find a <|bos|> token
+        # 2) attempt to find an explicit Kimi-style [BOS] token
+        if bos is None:
+            bos = self.encode_special("[BOS]")
+        # 3) attempt to find a generic <|bos|> token for compatibility
         if bos is None:
             bos = self.encode_special("<|bos|>")
-        # 3) if that fails, attempt to find a <|endoftext|> token (e.g. GPT/Qwen-style local tokenizers)
-        if bos is None:
-            bos = self.encode_special("<|endoftext|>")
         # 4) final fallback to EOS only if the tokenizer truly has no BOS metadata
         if bos is None:
             bos = getattr(self.tokenizer, "eos_token_id", None)
         # 5) if these fail, it's better to crash than to silently return None
         assert bos is not None, "Failed to find BOS token in tokenizer"
         return bos
+
+    def get_doc_delimiter_id(self):
+        return self.get_bos_token_id()
+
+    def get_eos_token_id(self):
+        eos = getattr(self.tokenizer, "eos_token_id", None)
+        if eos is None:
+            eos = self.encode_special("<|im_end|>")
+        assert eos is not None, "Failed to find EOS token in tokenizer"
+        return eos
 
     def encode(self, text, *args, **kwargs):
         if isinstance(text, str):
@@ -257,23 +267,20 @@ class RustBPETokenizer:
             mergeable_ranks=mergeable_ranks, # dict[bytes, int] (token bytes -> merge priority rank)
             special_tokens=special_tokens, # dict[str, int] (special token name -> token id)
         )
-        return cls(enc, "<|endoftext|>")
+        return cls(enc, "[BOS]")
 
     @classmethod
     def from_directory(cls, tokenizer_dir):
         pickle_path = os.path.join(tokenizer_dir, "tokenizer.pkl")
         with open(pickle_path, "rb") as f:
             enc = pickle.load(f)
-        return cls(enc, "<|endoftext|>")
+        return cls(enc, "[BOS]")
 
     @classmethod
     def from_pretrained(cls, tiktoken_name):
         # https://github.com/openai/tiktoken/blob/eedc8563/tiktoken_ext/openai_public.py
         enc = tiktoken.get_encoding(tiktoken_name)
-        # tiktoken calls the special document delimiter token "<|endoftext|>".
-        # We use that as the BOS/document delimiter for locally trained tokenizers,
-        # which matches common GPT/Qwen-style text-only tokenization setups.
-        return cls(enc, "<|endoftext|>")
+        return cls(enc, "[BOS]")
 
     def get_vocab_size(self):
         return self.enc.n_vocab
@@ -290,6 +297,12 @@ class RustBPETokenizer:
 
     def get_bos_token_id(self):
         return self.bos_token_id
+
+    def get_doc_delimiter_id(self):
+        return self.bos_token_id
+
+    def get_eos_token_id(self):
+        return self.encode_special("<|im_end|>")
 
     def encode(self, text, prepend=None, append=None, num_threads=8):
         # text can be either a string or a list of strings
@@ -347,6 +360,8 @@ class RustBPETokenizer:
             ids.extend(token_ids)
             mask.extend([mask_val] * len(token_ids))
 
+        add_tokens(self.get_bos_token_id(), 0)
+
         # sometimes the first message is a system message...
         # => just merge it with the second (user) message
         if conversation["messages"][0]["role"] == "system":
@@ -361,12 +376,10 @@ class RustBPETokenizer:
         assert len(messages) >= 1, f"Conversation has less than 1 message: {messages}"
 
         # fetch all the special tokens we need
-        bos = self.get_bos_token_id()
         im_start = self.encode_special("<|im_start|>")
         im_end = self.encode_special("<|im_end|>")
 
         # now we can tokenize the conversation
-        add_tokens(bos, 0)
         for i, message in enumerate(messages):
 
             # some sanity checking here around assumptions, to prevent footguns
