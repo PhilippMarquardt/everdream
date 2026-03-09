@@ -236,8 +236,8 @@ class GPT(nn.Module):
             x = self.resid_lambdas[i] * x + self.x0_lambdas[i] * x0
             ve = self.value_embeds[str(i)](idx) if str(i) in self.value_embeds else None
             if self.should_checkpoint_layer(i):
-                def block_fn(x_in):
-                    return block(x_in, ve, cos_sin, self.window_sizes[i])
+                def block_fn(x_in, _block=block, _ve=ve, _ws=self.window_sizes[i]):
+                    return _block(x_in, _ve, cos_sin, _ws)
                 x = checkpoint_utils.checkpoint(block_fn, x, use_reentrant=False)
             else:
                 x = block(x, ve, cos_sin, self.window_sizes[i])
