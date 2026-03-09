@@ -11,7 +11,7 @@ runtime:
   fp8: true
   fp8_recipe: tensorwise
   compile: true
-  checkpoint_mode: off
+  checkpoint_mode: 'off'
   checkpoint_pattern: CCN
   no_ckpt_last_n: 4
   wandb: true
