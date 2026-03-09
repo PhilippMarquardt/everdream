@@ -134,6 +134,11 @@ class GPT(nn.Module):
 
     @torch.no_grad()
     def init_weights(self):
+        # Recompute RoPE buffers on current device (required after to_empty)
+        device = self.wte.weight.device
+        cos, sin = self._precompute_rope(self.config.sequence_len * 10, self.config.n_embd // self.config.n_head)
+        self.cos = cos.to(device)
+        self.sin = sin.to(device)
         nn.init.normal_(self.wte.weight, mean=0.0, std=1.0)
         nn.init.normal_(self.lm_head.weight, mean=0.0, std=0.001)
         s = 3 ** 0.5 * self.config.n_embd ** -0.5
