@@ -125,10 +125,7 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
     )
     vocab_size = tokenizer.get_vocab_size()
     model = build_model(cfg.model, vocab_size=vocab_size, sequence_len=cfg.training.max_seq_len, runtime_cfg=cfg.runtime)
-    if hasattr(model, 'to_empty'):
-        model.to_empty(device=device)
-    else:
-        model = model.to(device)
+    model = model.to(device)
     if hasattr(model, 'init_weights'):
         model.init_weights()
     model = _maybe_enable_fp8(model, cfg.runtime, device.type)
@@ -277,6 +274,8 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
 
     model.train()
     log_t0 = time.time()
+    log_every = cfg.training.log_every
+    log_losses = []
     start_step = max(0, cfg.training.resume_from_step)
     for step in range(start_step + 1, num_iterations + 1):
         lrm = get_lr_multiplier(step)
@@ -302,12 +301,19 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
             rz_acc += out['rz'].item() / grad_accum
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        if step % 50 == 0:
+        log_losses.append({'total': total_acc, 'ce': ce_acc, 'lb': lb_acc, 'rz': rz_acc})
+        if step % log_every == 0:
+            window = log_losses[-log_every:]
+            avg_total = sum(d['total'] for d in window) / len(window)
+            avg_ce = sum(d['ce'] for d in window) / len(window)
+            avg_lb = sum(d['lb'] for d in window) / len(window)
+            avg_rz = sum(d['rz'] for d in window) / len(window)
+            avg_aux = avg_lb + avg_rz
             dt = time.time() - log_t0
-            local_tps = cfg.training.device_batch_size * grad_accum * (cfg.training.max_seq_len - 1) * 50 / dt
+            local_tps = cfg.training.device_batch_size * grad_accum * (cfg.training.max_seq_len - 1) * log_every / dt
             global_tps = local_tps * ddp_world_size
-            print0(f"step {step:5d}/{num_iterations} | total {total_acc:.4f} | ce {ce_acc:.4f} | aux {(lb_acc + rz_acc):.4f} | lb {lb_acc:.4f} | rz {rz_acc:.4f} | lrm {lrm:.2f} | {global_tps/1e3:.0f}k tok/s")
-            run.log({'step': step, 'train/total': total_acc, 'train/ce': ce_acc, 'train/lb': lb_acc, 'train/rz': rz_acc, 'train/aux': lb_acc + rz_acc, 'train/tok_s_global': global_tps, 'train/tok_s_local': local_tps, 'train/lrm': lrm})
+            print0(f"step {step:5d}/{num_iterations} | total {avg_total:.4f} | ce {avg_ce:.4f} | aux {avg_aux:.4f} | lb {avg_lb:.4f} | rz {avg_rz:.4f} | lrm {lrm:.2f} | {global_tps/1e3:.0f}k tok/s")
+            run.log({'step': step, 'train/total': avg_total, 'train/ce': avg_ce, 'train/lb': avg_lb, 'train/rz': avg_rz, 'train/aux': avg_aux, 'train/tok_s_global': global_tps, 'train/tok_s_local': local_tps, 'train/lrm': lrm})
             log_t0 = time.time()
         if cfg.training.eval_every > 0 and step % cfg.training.eval_every == 0:
             metrics = eval_loss()

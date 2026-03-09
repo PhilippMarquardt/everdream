@@ -94,7 +94,7 @@ def generate_samples(model, tokenizer, prompts: list[str], max_tokens: int = 64)
         for prompt in prompts:
             prompt_tokens = tokenizer.encode(prompt, prepend=tokenizer.get_bos_token_id())
             generated = []
-            stream = model.generate(prompt_tokens, max_tokens=max_tokens, temperature=0.0)
+            stream = model.generate(prompt_tokens, max_tokens=max_tokens, temperature=0.8, top_k=50)
             for token in stream:
                 generated.append(token)
             outputs.append(tokenizer.decode(prompt_tokens + generated))

@@ -90,17 +90,9 @@ class TrainingConfig:
     warmup_ratio: float = 0.0
     warmdown_ratio: float = 0.5
     final_lr_frac: float = 0.0
+    log_every: int = 50
     bench_every: int = -1
     bench_max: int = 200
-
-
-@dataclass
-class DenseNanochatConfig:
-    family: Literal["dense_nanochat"] = "dense_nanochat"
-    depth: int = 20
-    aspect_ratio: int = 64
-    head_dim: int = 128
-    window_pattern: str = "SSSL"
 
 
 @dataclass
@@ -112,34 +104,7 @@ class DenseCustomConfig:
     window_pattern: str = "L"
 
 
-@dataclass
-class AttentionMoeConfig:
-    family: Literal["attention_moe"] = "attention_moe"
-    depth: int = 20
-    aspect_ratio: int = 64
-    head_dim: int = 128
-    window_pattern: str = "L"
-    moe_num_experts: int = 32
-    moe_top_k: int = 2
-    moe_inter_dim: int = 512
-    moe_z_loss_alpha: float = 1e-3
-    moe_jitter_noise: float = 0.1
-    moe_loss_weight: float = 1e-2
-    dense_first_n: int = 1
-
-
-@dataclass
-class HybridModelConfig:
-    family: Literal["hybrid"] = "hybrid"
-    depth: int = 16
-    d_model: int = 1024
-    n_heads: int = 8
-    window_pattern: str = "L"
-    layer_pattern: str = "DDDADDDADDDADDDA"
-    chunk_size: int = 64
-
-
-ModelConfig = DenseNanochatConfig | DenseCustomConfig | AttentionMoeConfig | HybridModelConfig
+ModelConfig = DenseCustomConfig
 
 
 @dataclass

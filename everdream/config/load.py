@@ -6,12 +6,9 @@ import tomllib
 import yaml
 
 from .schema import (
-    AttentionMoeConfig,
     DatasetConfig,
     DenseCustomConfig,
-    DenseNanochatConfig,
     EverdreamConfig,
-    HybridModelConfig,
     RuntimeConfig,
     TokenizerConfig,
     TrainingConfig,
@@ -32,13 +29,9 @@ def load_config(path: str | Path) -> EverdreamConfig:
     tok_raw = dict(raw.get("tokenizer", {}))
     if "ensure_nanochat_special_tokens" in tok_raw and "ensure_chat_special_tokens" not in tok_raw:
         tok_raw["ensure_chat_special_tokens"] = tok_raw.pop("ensure_nanochat_special_tokens")
-    family = raw.get("model", {}).get("family", "dense")
+    family = raw.get("model", {}).get("family", "dense_custom")
     model_cls = {
-        "dense": DenseNanochatConfig,
-        "dense_nanochat": DenseNanochatConfig,
         "dense_custom": DenseCustomConfig,
-        "attention_moe": AttentionMoeConfig,
-        "hybrid": HybridModelConfig,
     }[family]
     cfg = EverdreamConfig(
         runtime=RuntimeConfig(**raw.get("runtime", {})),
