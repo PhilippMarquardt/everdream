@@ -208,26 +208,20 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
     @torch.no_grad()
     def eval_loss():
         model.eval()
-        totals = {'total': 0.0, 'ce': 0.0, 'lb': 0.0, 'rz': 0.0}
+        ce_total = 0.0
         count = max(1, cfg.training.eval_tokens // (cfg.training.device_batch_size * cfg.training.max_seq_len))
         for _ in range(count):
             x, y, _ = next(val_loader)
             x, y = x.to(device), y.to(device)
             with torch.autocast(device_type=device.type, dtype=COMPUTE_DTYPE):
                 out = _normalize_output(model(x, y))
-            totals['total'] += out['total'].item()
-            totals['ce'] += out['ce'].item()
-            totals['lb'] += out['lb'].item()
-            totals['rz'] += out['rz'].item()
+            ce_total += out['ce'].item()
         if dist.is_initialized():
-            t = torch.tensor([totals['total'], totals['ce'], totals['lb'], totals['rz']], device=device, dtype=torch.float64)
+            t = torch.tensor([ce_total], device=device, dtype=torch.float64)
             dist.all_reduce(t, op=dist.ReduceOp.AVG)
-            totals['total'], totals['ce'], totals['lb'], totals['rz'] = t.tolist()
+            ce_total = t.item()
         model.train()
-        for key in totals:
-            totals[key] /= count
-        totals['aux'] = totals['lb'] + totals['rz']
-        return totals
+        return {'ce': ce_total / count}
 
     def maybe_run_extended_eval(step: int):
         if not master_process:
@@ -288,38 +282,31 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
                 group['momentum'] = muon_momentum
                 group['weight_decay'] = muon_wd
         optimizer.zero_grad(set_to_none=True)
-        total_acc = ce_acc = lb_acc = rz_acc = 0.0
+        ce_acc = 0.0
         for _ in range(grad_accum):
             x, y, _ = next(train_loader)
             x, y = x.to(device), y.to(device)
             with torch.autocast(device_type=device.type, dtype=COMPUTE_DTYPE):
                 out = _normalize_output(model(x, y))
-                (out['total'] / grad_accum).backward()
-            total_acc += out['total'].item() / grad_accum
+                (out['ce'] / grad_accum).backward()
             ce_acc += out['ce'].item() / grad_accum
-            lb_acc += out['lb'].item() / grad_accum
-            rz_acc += out['rz'].item() / grad_accum
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        log_losses.append({'total': total_acc, 'ce': ce_acc, 'lb': lb_acc, 'rz': rz_acc})
+        log_losses.append(ce_acc)
         if step % log_every == 0:
             window = log_losses[-log_every:]
-            avg_total = sum(d['total'] for d in window) / len(window)
-            avg_ce = sum(d['ce'] for d in window) / len(window)
-            avg_lb = sum(d['lb'] for d in window) / len(window)
-            avg_rz = sum(d['rz'] for d in window) / len(window)
-            avg_aux = avg_lb + avg_rz
+            avg_ce = sum(window) / len(window)
             dt = time.time() - log_t0
             local_tps = cfg.training.device_batch_size * grad_accum * (cfg.training.max_seq_len - 1) * log_every / dt
             global_tps = local_tps * ddp_world_size
-            print0(f"step {step:5d}/{num_iterations} | total {avg_total:.4f} | ce {avg_ce:.4f} | aux {avg_aux:.4f} | lb {avg_lb:.4f} | rz {avg_rz:.4f} | lrm {lrm:.2f} | {global_tps/1e3:.0f}k tok/s")
-            run.log({'step': step, 'train/total': avg_total, 'train/ce': avg_ce, 'train/lb': avg_lb, 'train/rz': avg_rz, 'train/aux': avg_aux, 'train/tok_s_global': global_tps, 'train/tok_s_local': local_tps, 'train/lrm': lrm})
+            print0(f"step {step:5d}/{num_iterations} | ce {avg_ce:.4f} | lrm {lrm:.2f} | {global_tps/1e3:.0f}k tok/s")
+            run.log({'step': step, 'train/ce': avg_ce, 'train/tok_s_global': global_tps, 'train/tok_s_local': local_tps, 'train/lrm': lrm})
             log_t0 = time.time()
         if cfg.training.eval_every > 0 and step % cfg.training.eval_every == 0:
             metrics = eval_loss()
             ppl = math.exp(metrics['ce'])
-            print0(f"  -> val_total {metrics['total']:.4f} | val_ce {metrics['ce']:.4f} | val_aux {metrics['aux']:.4f} | ppl {ppl:.1f}")
-            run.log({'step': step, 'val/total': metrics['total'], 'val/ce': metrics['ce'], 'val/lb': metrics['lb'], 'val/rz': metrics['rz'], 'val/aux': metrics['aux'], 'val/ppl': ppl})
+            print0(f"  -> val_ce {metrics['ce']:.4f} | ppl {ppl:.1f}")
+            run.log({'step': step, 'val/ce': metrics['ce'], 'val/ppl': ppl})
             maybe_run_extended_eval(step)
         if cfg.runtime.checkpoint_path and cfg.training.save_every > 0 and step % cfg.training.save_every == 0:
             _save_checkpoint(cfg.runtime.checkpoint_path, step, model, optimizer, cfg, ddp_rank, master_process)

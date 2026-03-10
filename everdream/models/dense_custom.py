@@ -13,6 +13,13 @@ from everdream.flash_attention import flash_attn
 from everdream.optim import DistMuonAdamW, MuonAdamW
 
 
+class Linear(nn.Linear):
+    """Master weights stay fp32 for optimizer precision,
+    matmuls run in the activation dtype (typically bf16)."""
+    def forward(self, x):
+        return F.linear(x, self.weight.to(dtype=x.dtype))
+
+
 @dataclass
 class GPTConfig:
     sequence_len: int = 2048
@@ -58,12 +65,12 @@ class CausalSelfAttention(nn.Module):
         self.layer_idx = layer_idx
         self.n_heads = config.n_head
         self.head_dim = config.n_embd // config.n_head
-        self.c_q = nn.Linear(config.n_embd, self.n_heads * self.head_dim, bias=False)
-        self.c_k = nn.Linear(config.n_embd, self.n_heads * self.head_dim, bias=False)
-        self.c_v = nn.Linear(config.n_embd, self.n_heads * self.head_dim, bias=False)
-        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=False)
+        self.c_q = Linear(config.n_embd, self.n_heads * self.head_dim, bias=False)
+        self.c_k = Linear(config.n_embd, self.n_heads * self.head_dim, bias=False)
+        self.c_v = Linear(config.n_embd, self.n_heads * self.head_dim, bias=False)
+        self.c_proj = Linear(config.n_embd, config.n_embd, bias=False)
         self.ve_gate_channels = 32
-        self.ve_gate = nn.Linear(self.ve_gate_channels, self.n_heads, bias=False) if has_ve(layer_idx, config.n_layer) else None
+        self.ve_gate = Linear(self.ve_gate_channels, self.n_heads, bias=False) if has_ve(layer_idx, config.n_layer) else None
 
     def forward(self, x, ve, cos_sin, window_size):
         B, T, _ = x.size()
@@ -88,8 +95,8 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
-        self.gate_up = nn.Linear(config.n_embd, 2 * 4 * config.n_embd, bias=False)
-        self.down = nn.Linear(4 * config.n_embd, config.n_embd, bias=False)
+        self.gate_up = Linear(config.n_embd, 2 * 4 * config.n_embd, bias=False)
+        self.down = Linear(4 * config.n_embd, config.n_embd, bias=False)
 
     def forward(self, x):
         gate, up = self.gate_up(x).chunk(2, dim=-1)
@@ -115,7 +122,7 @@ class GPT(nn.Module):
         self.window_sizes = compute_window_sizes(config)
         self.wte = nn.Embedding(config.vocab_size, config.n_embd)
         self.blocks = nn.ModuleList([Block(config, i) for i in range(config.n_layer)])
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.lm_head = Linear(config.n_embd, config.vocab_size, bias=False)
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
         kv_dim = config.n_head * (config.n_embd // config.n_head)

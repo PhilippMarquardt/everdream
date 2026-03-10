@@ -84,7 +84,7 @@ def evaluate_core(model, tokenizer, device, max_per_task=-1):
 
 
 @torch.no_grad()
-def generate_samples(model, tokenizer, prompts: list[str], max_tokens: int = 64):
+def generate_samples(model, tokenizer, prompts: list[str], max_tokens: int = 128):
     if not hasattr(model, "generate"):
         return None
     was_training = model.training
@@ -130,6 +130,7 @@ def run_eval(
             "The capital of France is",
             "The chemical symbol of gold is",
             "If 5*x + 3 = 13, then x is",
+            "def fibonacci(n):",
         ]
         samples = generate_samples(model, tokenizer, prompts)
         if samples is not None:
