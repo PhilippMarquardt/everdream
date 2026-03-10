@@ -60,7 +60,7 @@ datasets:
 - name: climbmix
   source: https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resolve/main
   local_dir: /content/drive/MyDrive/everdream/climbmix-400b-shuffle
-  weight: 0.8
+  weight: 0.7
   max_shard_index: 6542
   num_train_shards: 170
   val_shard_index: 6542
@@ -142,4 +142,12 @@ datasets:
   max_shard_index: 40
   num_train_shards: 40
   val_shard_index: 40
+  num_download_workers: 4
+- name: fineweb_edu
+  source: https://huggingface.co/datasets/karpathy/fineweb-edu-100b-shuffle/resolve/main
+  local_dir: /content/drive/MyDrive/everdream/fineweb-edu-100b-shuffle
+  weight: 0.1
+  max_shard_index: 329
+  num_train_shards: 100
+  val_shard_index: 329
   num_download_workers: 4
