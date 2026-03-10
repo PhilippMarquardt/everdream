@@ -62,7 +62,7 @@ datasets:
   local_dir: /content/drive/MyDrive/everdream/climbmix-400b-shuffle
   weight: 0.7
   max_shard_index: 6542
-  num_train_shards: 170
+  num_train_shards: 340
   val_shard_index: 6542
   num_download_workers: 4
 - name: the_stack_dedup_python
@@ -72,7 +72,7 @@ datasets:
   text_field: content
   filename_template: data-{index:05d}-of-00144.parquet
   max_shard_index: 143
-  num_train_shards: 10
+  num_train_shards: 20
   val_shard_index: 143
   num_download_workers: 4
 - name: the_stack_dedup_javascript
@@ -82,7 +82,7 @@ datasets:
   text_field: content
   filename_template: data-{index:05d}-of-00310.parquet
   max_shard_index: 309
-  num_train_shards: 10
+  num_train_shards: 20
   val_shard_index: 309
   num_download_workers: 4
 - name: the_stack_dedup_typescript
@@ -92,7 +92,7 @@ datasets:
   text_field: content
   filename_template: data-{index:05d}-of-00071.parquet
   max_shard_index: 70
-  num_train_shards: 10
+  num_train_shards: 20
   val_shard_index: 70
   num_download_workers: 4
 - name: the_stack_dedup_java
@@ -102,7 +102,7 @@ datasets:
   text_field: content
   filename_template: data-{index:05d}-of-00208.parquet
   max_shard_index: 207
-  num_train_shards: 10
+  num_train_shards: 20
   val_shard_index: 207
   num_download_workers: 4
 - name: the_stack_dedup_go
@@ -112,7 +112,7 @@ datasets:
   text_field: content
   filename_template: data-{index:05d}-of-00057.parquet
   max_shard_index: 56
-  num_train_shards: 10
+  num_train_shards: 20
   val_shard_index: 56
   num_download_workers: 4
 - name: the_stack_dedup_rust
@@ -122,7 +122,7 @@ datasets:
   text_field: content
   filename_template: data-{index:05d}-of-00021.parquet
   max_shard_index: 20
-  num_train_shards: 10
+  num_train_shards: 20
   val_shard_index: 20
   num_download_workers: 4
 - name: nemotron_math_4plus
@@ -131,7 +131,7 @@ datasets:
   weight: 0.05
   filename_template: part_{index:06d}.parquet
   max_shard_index: 45
-  num_train_shards: 20
+  num_train_shards: 40
   val_shard_index: 45
   num_download_workers: 2
 - name: wikipedia_en
@@ -148,6 +148,6 @@ datasets:
   local_dir: /content/drive/MyDrive/everdream/fineweb-edu-100b-shuffle
   weight: 0.1
   max_shard_index: 329
-  num_train_shards: 100
+  num_train_shards: 200
   val_shard_index: 329
   num_download_workers: 4
