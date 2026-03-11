@@ -157,7 +157,17 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
     )
 
     train_loader = tokenizing_weighted_data_loader_bos_bestfit(tokenizer, cfg.datasets, B=cfg.training.device_batch_size, T=cfg.training.max_seq_len, split='train', seed=cfg.runtime.seed, device=device.type)
-    val_loader = tokenizing_weighted_data_loader_bos_bestfit(tokenizer, cfg.datasets, B=cfg.training.device_batch_size, T=cfg.training.max_seq_len, split='val', seed=cfg.runtime.seed, device=device.type)
+
+    def build_val_loader():
+        return tokenizing_weighted_data_loader_bos_bestfit(
+            tokenizer,
+            cfg.datasets,
+            B=cfg.training.device_batch_size,
+            T=cfg.training.max_seq_len,
+            split='val',
+            seed=cfg.runtime.seed,
+            device=device.type,
+        )
 
     num_flops_per_token = model.estimate_flops()
     local_microbatch_tokens = cfg.training.device_batch_size * cfg.training.max_seq_len
@@ -210,6 +220,7 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
         model.eval()
         ce_total = 0.0
         count = max(1, cfg.training.eval_tokens // (cfg.training.device_batch_size * cfg.training.max_seq_len))
+        val_loader = build_val_loader()
         for _ in range(count):
             x, y, _ = next(val_loader)
             x, y = x.to(device), y.to(device)
@@ -235,7 +246,7 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
             model=model,
             tokenizer=tokenizer,
             device=device,
-            val_loader=val_loader,
+            val_loader=build_val_loader(),
             eval_tokens=cfg.training.eval_tokens,
             eval_batch_tokens=cfg.training.device_batch_size * cfg.training.max_seq_len,
             eval_modes=[m for m in modes if m != "core"],
@@ -255,7 +266,7 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
                 model=model,
                 tokenizer=tokenizer,
                 device=device,
-                val_loader=val_loader,
+                val_loader=build_val_loader(),
                 eval_tokens=cfg.training.eval_tokens,
                 eval_batch_tokens=cfg.training.device_batch_size * cfg.training.max_seq_len,
                 eval_modes=["core"],
