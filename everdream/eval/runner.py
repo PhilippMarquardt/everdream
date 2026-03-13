@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from contextlib import contextmanager
 import json
 import os
 import random
@@ -29,6 +30,50 @@ def _place_eval_bundle(file_path):
         extracted_bundle_dir = os.path.join(tmpdir, "eval_bundle")
         shutil.move(extracted_bundle_dir, eval_bundle_dir)
     print0(f"Placed eval_bundle directory at {eval_bundle_dir}")
+
+
+@contextmanager
+def disable_fp8(model):
+    import torch.nn as nn
+
+    class EvalLinear(nn.Linear):
+        def forward(self, x):
+            return torch.nn.functional.linear(x, self.weight.to(dtype=x.dtype), None if self.bias is None else self.bias.to(dtype=x.dtype))
+
+    fp8_locations = []
+    for name, module in model.named_modules():
+        if "Float8" not in type(module).__name__:
+            continue
+        if "." in name:
+            parent_name, attr_name = name.rsplit(".", 1)
+            parent = model.get_submodule(parent_name)
+        else:
+            parent = model
+            attr_name = name
+        fp8_locations.append((parent, attr_name, module))
+
+    if not fp8_locations:
+        yield
+        return
+
+    for parent, attr_name, fp8_module in fp8_locations:
+        linear = EvalLinear(
+            fp8_module.in_features,
+            fp8_module.out_features,
+            bias=fp8_module.bias is not None,
+            device=fp8_module.weight.device,
+            dtype=fp8_module.weight.dtype,
+        )
+        linear.weight = fp8_module.weight
+        if fp8_module.bias is not None:
+            linear.bias = fp8_module.bias
+        setattr(parent, attr_name, linear)
+
+    try:
+        yield
+    finally:
+        for parent, attr_name, fp8_module in fp8_locations:
+            setattr(parent, attr_name, fp8_module)
 
 
 @torch.no_grad()
@@ -91,13 +136,18 @@ def generate_samples(model, tokenizer, prompts: list[str], max_tokens: int = 128
     model.eval()
     outputs = []
     try:
-        for prompt in prompts:
-            prompt_tokens = tokenizer.encode(prompt, prepend=tokenizer.get_bos_token_id())
-            generated = []
-            stream = model.generate(prompt_tokens, max_tokens=max_tokens, temperature=0.8, top_k=50)
-            for token in stream:
-                generated.append(token)
-            outputs.append(tokenizer.decode(prompt_tokens + generated))
+        with disable_fp8(model):
+            bos_text = tokenizer.decode([tokenizer.get_bos_token_id()])
+            for prompt in prompts:
+                prompt_tokens = tokenizer.encode(prompt, prepend=tokenizer.get_bos_token_id())
+                generated = []
+                stream = model.generate(prompt_tokens, max_tokens=max_tokens, temperature=0.8, top_k=50)
+                for token in stream:
+                    generated.append(token)
+                decoded = tokenizer.decode(prompt_tokens + generated)
+                if bos_text and decoded.startswith(bos_text):
+                    decoded = decoded[len(bos_text):]
+                outputs.append(decoded)
     finally:
         if was_training:
             model.train()
@@ -120,10 +170,12 @@ def run_eval(
     if "bpb" in modes:
         token_bytes = get_token_bytes(device=device, tokenizer=tokenizer)
         steps = max(1, eval_tokens // eval_batch_tokens)
-        results["bpb"] = evaluate_bpb(model, val_loader, steps, token_bytes)
+        with disable_fp8(model):
+            results["bpb"] = evaluate_bpb(model, val_loader, steps, token_bytes)
 
     if "core" in modes:
-        results["core"] = evaluate_core(model, tokenizer, device, max_per_task=core_metric_max_per_task)
+        with disable_fp8(model):
+            results["core"] = evaluate_core(model, tokenizer, device, max_per_task=core_metric_max_per_task)
 
     if "sample" in modes:
         prompts = [

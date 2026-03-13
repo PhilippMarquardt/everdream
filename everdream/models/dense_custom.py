@@ -194,6 +194,7 @@ class GPT(nn.Module):
             "lm_head": lm_head,
             "blocks": block_params,
             "scalars": scalars,
+            "scaling": block_params + lm_head,
             "active": total,
             "total": total,
         }

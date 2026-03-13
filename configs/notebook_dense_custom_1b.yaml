@@ -1,5 +1,5 @@
 runtime:
-  run_name: dense-custom-3b-500b
+  run_name: dense-custom-1b
   notebook: true
   mount_drive: true
   drive_path: /content/drive
@@ -18,7 +18,7 @@ runtime:
   wandb_project: everdream
   wandb_mode: online
   output_dir: /content/drive/MyDrive/everdream
-  checkpoint_path: /content/drive/MyDrive/everdream/checkpoints/dense_custom_3b_500b
+  checkpoint_path: /content/drive/MyDrive/everdream/checkpoints/dense_custom_1b
 tokenizer:
   source: hf
   path: mistralai/Mistral-7B-v0.3
@@ -27,7 +27,7 @@ training:
   max_seq_len: 2048
   device_batch_size: 16
   total_batch_size: 524288
-  target_tokens: 15032442880
+  target_tokens: 3963639680
   target_param_data_ratio: 10.5
   eval_every: 250
   eval_tokens: 20000000
@@ -39,7 +39,7 @@ training:
   sample_every: -1
   save_every: 2500
   log_every: 50
-  resume_from_step: 6000
+  resume_from_step: -1
   embedding_lr: 0.3
   unembedding_lr: 0.004
   matrix_lr: 0.02
@@ -52,7 +52,7 @@ training:
   final_lr_frac: 0.0
 model:
   family: dense_custom
-  depth: 31
+  depth: 20
   aspect_ratio: 64
   head_dim: 128
   window_pattern: L

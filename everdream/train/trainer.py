@@ -12,7 +12,7 @@ from everdream.common import COMPUTE_DTYPE, get_dist_info, get_peak_flops, print
 from everdream.config.schema import EverdreamConfig
 from everdream.data.dataloader import tokenizing_weighted_data_loader_bos_bestfit
 from everdream.data.sources import ensure_dataset_ready
-from everdream.eval import run_eval
+from everdream.eval import disable_fp8, run_eval
 from everdream.logging.wandb_logger import init_wandb
 from everdream.models.registry import build_model
 from everdream.tokenizer import get_tokenizer
@@ -180,7 +180,9 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
     grad_accum = max(1, cfg.training.total_batch_size // global_microbatch_tokens)
     tokens_per_step = global_microbatch_tokens * grad_accum
     flops_per_step = num_flops_per_token * tokens_per_step
-    active_params = model.num_scaling_params()['active']
+    param_counts = model.num_scaling_params()
+    active_params = param_counts['active']
+    scaling_params = param_counts.get('scaling', active_params)
     if cfg.training.num_iterations > 0:
         num_iterations = cfg.training.num_iterations
     elif cfg.training.target_tokens > 0:
@@ -188,7 +190,7 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
     elif cfg.training.target_flops > 0:
         num_iterations = round(cfg.training.target_flops / flops_per_step)
     else:
-        target_tokens = active_params * cfg.training.target_param_data_ratio
+        target_tokens = scaling_params * cfg.training.target_param_data_ratio
         num_iterations = max(1, round(target_tokens / tokens_per_step))
 
     # Weight decay scaling (ref: Nanochat T_epoch framework, arxiv 2405.13698)
@@ -197,7 +199,7 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
     total_tokens = num_iterations * tokens_per_step
     scaled_wd = cfg.training.weight_decay * math.sqrt(tokens_per_step / B_REF) * (D_REF / total_tokens)
 
-    print0(f'Train iterations: {num_iterations} | Active params: {active_params:,}')
+    print0(f'Train iterations: {num_iterations} | Active params: {active_params:,} | Scaling params: {scaling_params:,}')
     print0(f'Tokens/step: {tokens_per_step:,} | Target tokens: {num_iterations * tokens_per_step:,}')
     print0(f'FLOPs/token: {num_flops_per_token:.2e} | FLOPs/step: {flops_per_step:.2e}')
     print0(f'Weight decay scaled: {cfg.training.weight_decay} -> {scaled_wd:.6f}')
@@ -221,12 +223,13 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
         ce_total = 0.0
         count = max(1, cfg.training.eval_tokens // (cfg.training.device_batch_size * cfg.training.max_seq_len))
         val_loader = build_val_loader()
-        for _ in range(count):
-            x, y, _ = next(val_loader)
-            x, y = x.to(device), y.to(device)
-            with torch.autocast(device_type=device.type, dtype=COMPUTE_DTYPE):
-                out = _normalize_output(model(x, y))
-            ce_total += out['ce'].item()
+        with disable_fp8(model):
+            for _ in range(count):
+                x, y, _ = next(val_loader)
+                x, y = x.to(device), y.to(device)
+                with torch.autocast(device_type=device.type, dtype=COMPUTE_DTYPE):
+                    out = _normalize_output(model(x, y))
+                ce_total += out['ce'].item()
         if dist.is_initialized():
             t = torch.tensor([ce_total], device=device, dtype=torch.float64)
             dist.all_reduce(t, op=dist.ReduceOp.AVG)
