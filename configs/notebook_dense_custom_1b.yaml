@@ -27,7 +27,7 @@ training:
   max_seq_len: 2048
   device_batch_size: 16
   total_batch_size: 524288
-  target_tokens: 3963639680
+  target_tokens: 7927279360
   target_param_data_ratio: 10.5
   eval_every: 250
   eval_tokens: 20000000
