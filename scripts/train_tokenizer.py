@@ -3,34 +3,73 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import random
 
 from everdream.config.load import load_config
 from everdream.common import print_banner
-from everdream.data.dataloader import _weighted_document_batches
+from everdream.data.sources import document_batches
 from everdream.data.sources import ensure_dataset_ready
 from everdream.data.tokenizer import HuggingFaceTokenizer, RustBPETokenizer, save_token_bytes
 from everdream.runtime.notebook import init_notebook
-from everdream.runtime.distributed import print0
+from everdream.runtime.distributed import get_dist_info, print0
 
 
 def build_text_iterator(cfg):
     max_chars = cfg.tokenizer.train_max_chars
     doc_cap = cfg.tokenizer.train_doc_cap
     seen_chars = 0
-    batches = _weighted_document_batches(
-        cfg.datasets,
-        split=cfg.tokenizer.train_split,
-        tokenizer_batch_size=cfg.tokenizer.train_tokenizer_batch_size,
-        seed=cfg.runtime.seed,
-    )
+    batch_size = cfg.tokenizer.train_tokenizer_batch_size
+    ddp, ddp_rank, _, ddp_world_size = get_dist_info()
+    rng = random.Random(cfg.runtime.seed + (ddp_rank if ddp else 0))
+    iterators = [
+        document_batches(spec, split=cfg.tokenizer.train_split, start=ddp_rank if ddp else 0, step=ddp_world_size if ddp else 1)
+        for spec in cfg.datasets
+    ]
+    pending_docs = [[] for _ in cfg.datasets]
+    weights = [float(spec.weight) for spec in cfg.datasets]
+    consumed_chars = [0 for _ in cfg.datasets]
+    buffered_chars = [0 for _ in cfg.datasets]
+    doc_buffer: list[tuple[int, str]] = []
 
-    for _, docs, _state in batches:
-        for doc in docs:
+    def next_doc_batch(dataset_idx: int):
+        docs = pending_docs[dataset_idx]
+        spec = cfg.datasets[dataset_idx]
+        while len(docs) < batch_size:
+            try:
+                docs.extend(next(iterators[dataset_idx]))
+            except StopIteration:
+                iterators[dataset_idx] = document_batches(
+                    spec,
+                    split=cfg.tokenizer.train_split,
+                    start=ddp_rank if ddp else 0,
+                    step=ddp_world_size if ddp else 1,
+                )
+                docs.extend(next(iterators[dataset_idx]))
+        pending_docs[dataset_idx] = docs[batch_size:]
+        return docs[:batch_size]
+
+    def refill_buffer():
+        if not doc_buffer:
+            dataset_idx = rng.choices(range(len(cfg.datasets)), weights=weights, k=1)[0]
+        else:
+            scheduled_chars = [consumed_chars[i] + buffered_chars[i] for i in range(len(cfg.datasets))]
+            dataset_idx = min(
+                range(len(cfg.datasets)),
+                key=lambda i: scheduled_chars[i] / max(weights[i], 1e-12),
+            )
+        for doc in next_doc_batch(dataset_idx):
             text = doc[:doc_cap] if len(doc) > doc_cap else doc
-            seen_chars += len(text)
-            yield text
-            if seen_chars >= max_chars:
-                return
+            doc_buffer.append((dataset_idx, text))
+            buffered_chars[dataset_idx] += len(text)
+
+    while seen_chars < max_chars:
+        if not doc_buffer:
+            refill_buffer()
+        dataset_idx, text = doc_buffer.pop(0)
+        buffered_chars[dataset_idx] -= len(text)
+        consumed_chars[dataset_idx] += len(text)
+        seen_chars += len(text)
+        yield text
 
 
 def train_tokenizer(cfg):
