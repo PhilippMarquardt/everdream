@@ -68,7 +68,7 @@ datasets:
 - name: the_stack_dedup_python
   source: https://huggingface.co/datasets/bigcode/the-stack-dedup/resolve/main/data/python
   local_dir: /content/drive/MyDrive/everdream/the-stack-dedup/python
-  weight: 0.0309523810
+  weight: 0.0416666667
   text_field: content
   filename_template: data-{index:05d}-of-00144.parquet
   max_shard_index: 143
@@ -78,7 +78,7 @@ datasets:
 - name: the_stack_dedup_javascript
   source: https://huggingface.co/datasets/bigcode/the-stack-dedup/resolve/main/data/javascript
   local_dir: /content/drive/MyDrive/everdream/the-stack-dedup/javascript
-  weight: 0.0309523810
+  weight: 0.0416666667
   text_field: content
   filename_template: data-{index:05d}-of-00310.parquet
   max_shard_index: 309
@@ -88,7 +88,7 @@ datasets:
 - name: the_stack_dedup_typescript
   source: https://huggingface.co/datasets/bigcode/the-stack-dedup/resolve/main/data/typescript
   local_dir: /content/drive/MyDrive/everdream/the-stack-dedup/typescript
-  weight: 0.0309523810
+  weight: 0.0416666667
   text_field: content
   filename_template: data-{index:05d}-of-00071.parquet
   max_shard_index: 70
@@ -98,7 +98,7 @@ datasets:
 - name: the_stack_dedup_java
   source: https://huggingface.co/datasets/bigcode/the-stack-dedup/resolve/main/data/java
   local_dir: /content/drive/MyDrive/everdream/the-stack-dedup/java
-  weight: 0.0309523810
+  weight: 0.0416666667
   text_field: content
   filename_template: data-{index:05d}-of-00208.parquet
   max_shard_index: 207
@@ -108,7 +108,7 @@ datasets:
 - name: the_stack_dedup_go
   source: https://huggingface.co/datasets/bigcode/the-stack-dedup/resolve/main/data/go
   local_dir: /content/drive/MyDrive/everdream/the-stack-dedup/go
-  weight: 0.0309523810
+  weight: 0.0416666666
   text_field: content
   filename_template: data-{index:05d}-of-00057.parquet
   max_shard_index: 56
@@ -118,7 +118,7 @@ datasets:
 - name: the_stack_dedup_rust
   source: https://huggingface.co/datasets/bigcode/the-stack-dedup/resolve/main/data/rust
   local_dir: /content/drive/MyDrive/everdream/the-stack-dedup/rust
-  weight: 0.0309523810
+  weight: 0.0416666666
   text_field: content
   filename_template: data-{index:05d}-of-00021.parquet
   max_shard_index: 20
@@ -128,7 +128,7 @@ datasets:
 - name: nemotron_math_4plus
   source: https://huggingface.co/datasets/nvidia/Nemotron-CC-Math-v1/resolve/main/4plus
   local_dir: /content/drive/MyDrive/everdream/nemotron-cc-math-4plus
-  weight: 0.1309523810
+  weight: 0.05
   filename_template: part_{index:06d}.parquet
   max_shard_index: 45
   num_train_shards: 40
