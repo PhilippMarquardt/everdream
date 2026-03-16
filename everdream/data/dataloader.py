@@ -72,6 +72,7 @@ def tokenizing_weighted_data_loader_bos_bestfit(
     pending_docs = [[] for _ in dataset_specs]
     dataset_weights = [float(spec.weight) for spec in dataset_specs]
     source_epochs = [1 for _ in dataset_specs]
+    source_rows = [0 for _ in dataset_specs]
     source_buffers: list[list[list[int]]] = [[] for _ in dataset_specs]
     source_row_queues: list[list[list[int]]] = [[] for _ in dataset_specs]
     use_cuda = device == "cuda"
@@ -147,13 +148,20 @@ def tokenizing_weighted_data_loader_bos_bestfit(
             queue.append(pack_row_for_source(dataset_idx))
         rng.shuffle(queue)
 
+    def choose_source():
+        deficits = [source_rows[i] / max(dataset_weights[i], 1e-12) for i in range(len(dataset_specs))]
+        min_deficit = min(deficits)
+        candidates = [i for i, deficit in enumerate(deficits) if deficit == min_deficit]
+        return rng.choice(candidates)
+
     while True:
         for row_idx in range(B):
-            dataset_idx = rng.choices(range(len(dataset_specs)), weights=dataset_weights, k=1)[0]
+            dataset_idx = choose_source()
             if not source_row_queues[dataset_idx]:
                 refill_row_queue(dataset_idx)
             row = source_row_queues[dataset_idx].pop()
             row_buffer[row_idx].copy_(torch.tensor(row, dtype=torch.long))
+            source_rows[dataset_idx] += 1
             last_state["source"] = dataset_specs[dataset_idx].name
         cpu_inputs.copy_(row_buffer[:, :-1])
         cpu_targets.copy_(row_buffer[:, 1:])
