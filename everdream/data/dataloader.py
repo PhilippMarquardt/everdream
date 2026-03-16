@@ -86,7 +86,7 @@ def tokenizing_weighted_data_loader_bos_bestfit(
     inputs = gpu_buffer[:B * T].view(B, T)
     targets = gpu_buffer[B * T:].view(B, T)
 
-    last_state = {"epoch": 1, "draws": 0, "source": None}
+    last_state = {"epoch": 1, "draws": 0, "source": None, "sources": []}
 
     def next_doc_batch(dataset_idx: int):
         nonlocal last_state
@@ -155,6 +155,7 @@ def tokenizing_weighted_data_loader_bos_bestfit(
         return rng.choice(candidates)
 
     while True:
+        batch_sources = []
         for row_idx in range(B):
             dataset_idx = choose_source()
             if not source_row_queues[dataset_idx]:
@@ -163,6 +164,8 @@ def tokenizing_weighted_data_loader_bos_bestfit(
             row_buffer[row_idx].copy_(torch.tensor(row, dtype=torch.long))
             source_rows[dataset_idx] += 1
             last_state["source"] = dataset_specs[dataset_idx].name
+            batch_sources.append(dataset_specs[dataset_idx].name)
+        last_state["sources"] = batch_sources
         cpu_inputs.copy_(row_buffer[:, :-1])
         cpu_targets.copy_(row_buffer[:, 1:])
         gpu_buffer.copy_(cpu_buffer, non_blocking=use_cuda)
