@@ -44,7 +44,7 @@ training:
   unembedding_lr: 0.004
   matrix_lr: 0.02
   scalar_lr: 0.5
-  weight_decay: 0.2
+  weight_decay: 0.1
   adam_beta1: 0.8
   adam_beta2: 0.95
   warmup_ratio: 0.0
