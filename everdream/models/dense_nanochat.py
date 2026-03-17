@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from nanochat.nanochat.gpt import GPT as NanochatGPT
-from nanochat.nanochat.gpt import GPTConfig as NanochatGPTConfig
+try:
+    from nanochat.nanochat.gpt import GPT as NanochatGPT
+    from nanochat.nanochat.gpt import GPTConfig as NanochatGPTConfig
+except ModuleNotFoundError:
+    from nanochat.gpt import GPT as NanochatGPT
+    from nanochat.gpt import GPTConfig as NanochatGPTConfig
 
 from everdream.config.schema import DenseNanochatConfig
 
