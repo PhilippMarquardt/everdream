@@ -47,12 +47,15 @@ class GPT(NanochatGPT):
         adam_betas=(0.8, 0.95),
         scalar_lr=0.5,
     ):
+        # Older nanochat commits hardcode Adam betas internally and do not accept
+        # an adam_betas argument. Accept it here for compatibility with the
+        # everdream trainer API, but forward only the parameters upstream supports.
+        _ = adam_betas
         return super().setup_optimizer(
             unembedding_lr=unembedding_lr,
             embedding_lr=embedding_lr,
             matrix_lr=matrix_lr,
             weight_decay=weight_decay,
-            adam_betas=adam_betas,
             scalar_lr=scalar_lr,
         )
 
