@@ -8,6 +8,7 @@ import yaml
 from .schema import (
     DatasetConfig,
     DenseCustomConfig,
+    DenseNanochatConfig,
     EverdreamConfig,
     RuntimeConfig,
     TokenizerConfig,
@@ -32,6 +33,7 @@ def load_config(path: str | Path) -> EverdreamConfig:
     family = raw.get("model", {}).get("family", "dense_custom")
     model_cls = {
         "dense_custom": DenseCustomConfig,
+        "dense_nanochat": DenseNanochatConfig,
     }[family]
     cfg = EverdreamConfig(
         runtime=RuntimeConfig(**raw.get("runtime", {})),

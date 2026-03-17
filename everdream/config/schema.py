@@ -104,7 +104,17 @@ class DenseCustomConfig:
     window_pattern: str = "L"
 
 
-ModelConfig = DenseCustomConfig
+@dataclass
+class DenseNanochatConfig:
+    family: Literal["dense_nanochat"] = "dense_nanochat"
+    depth: int = 20
+    aspect_ratio: int = 64
+    head_dim: int = 128
+    window_pattern: str = "L"
+    kv_heads: int = -1
+
+
+ModelConfig = DenseCustomConfig | DenseNanochatConfig
 
 
 @dataclass
