@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 try:
     from nanochat.nanochat.gpt import GPT as NanochatGPT
     from nanochat.nanochat.gpt import GPTConfig as NanochatGPTConfig
 except ModuleNotFoundError:
-    from nanochat.gpt import GPT as NanochatGPT
-    from nanochat.gpt import GPTConfig as NanochatGPTConfig
+    repo_root = Path(__file__).resolve().parents[2]
+    vendored_nanochat = repo_root / "nanochat"
+    if vendored_nanochat.exists():
+        sys.path.insert(0, str(vendored_nanochat))
+    try:
+        from nanochat.gpt import GPT as NanochatGPT
+        from nanochat.gpt import GPTConfig as NanochatGPTConfig
+    except ModuleNotFoundError:
+        from nanochat.nanochat.gpt import GPT as NanochatGPT
+        from nanochat.nanochat.gpt import GPTConfig as NanochatGPTConfig
 
 from everdream.config.schema import DenseNanochatConfig
 
@@ -26,6 +37,24 @@ class GPT(NanochatGPT):
             "active": total,
             "total": total,
         }
+
+    def setup_optimizer(
+        self,
+        unembedding_lr=0.004,
+        embedding_lr=0.2,
+        matrix_lr=0.02,
+        weight_decay=0.0,
+        adam_betas=(0.8, 0.95),
+        scalar_lr=0.5,
+    ):
+        return super().setup_optimizer(
+            unembedding_lr=unembedding_lr,
+            embedding_lr=embedding_lr,
+            matrix_lr=matrix_lr,
+            weight_decay=weight_decay,
+            adam_betas=adam_betas,
+            scalar_lr=scalar_lr,
+        )
 
 
 def build_model_from_config(cfg: DenseNanochatConfig, vocab_size: int, sequence_len: int, runtime_cfg=None):
