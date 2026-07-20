@@ -237,13 +237,35 @@ def train(cfg: EverdreamConfig, device, master_process: bool = True):
         model.train()
         return {'ce': ce_total / count}
 
+    eval_suite = None
+    if cfg.training.eval_suite:
+        from everdream.evaluation import load_eval_suite
+
+        eval_suite = load_eval_suite(cfg.training.eval_suite)
+
+    def run_eval_suite(step: int):
+        from everdream.evaluation import EvalContext, EverdreamAdapter, flatten_results, print_results, run_suite
+
+        adapter = EverdreamAdapter(model, tokenizer, device)
+        ctx = EvalContext(
+            val_loader_factory=build_val_loader,
+            eval_tokens=cfg.training.eval_tokens,
+            eval_batch_tokens=cfg.training.device_batch_size * cfg.training.max_seq_len,
+        )
+        results = run_suite(adapter, eval_suite, ctx)
+        print_results(results, header=f"eval suite @ step {step}")
+        run.log({'step': step, **flatten_results(results)})
+
     def maybe_run_extended_eval(step: int):
         if not master_process:
             return
+        if cfg.training.eval_every <= 0 or step % cfg.training.eval_every != 0:
+            return
+        if eval_suite is not None:
+            run_eval_suite(step)
+            return
         modes = cfg.training.eval_modes
         if not modes:
-            return
-        if cfg.training.eval_every <= 0 or step % cfg.training.eval_every != 0:
             return
         eval_results = run_eval(
             model=model,

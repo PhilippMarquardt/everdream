@@ -74,6 +74,7 @@ class TrainingConfig:
     eval_every: int = 250
     eval_tokens: int = 80 * 524288
     eval_modes: list[str] = field(default_factory=lambda: ["bpb", "sample"])
+    eval_suite: str = ""  # path to an evaluation suite YAML; overrides eval_modes when set
     split_tokens: int = 40 * 524288
     core_metric_every: int = -1
     core_metric_max_per_task: int = -1

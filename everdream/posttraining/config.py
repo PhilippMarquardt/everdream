@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import yaml
+
+from everdream.evaluation.verifiers import RewardSpec
 
 
 @dataclass
@@ -19,6 +20,7 @@ class RLModelConfig:
 class RLDataConfig:
     source: str = "jsonl"  # jsonl | hf
     path: str = ""  # jsonl file path, or HF dataset name when source == "hf"
+    paths: list[str] = field(default_factory=list)  # multi-env mixture: jsonl files concatenated + shuffled (overrides path)
     split: str = "train"
     prompt_field: str = "prompt"
     max_samples: int = -1
@@ -28,10 +30,10 @@ class RLDataConfig:
 
 
 @dataclass
-class RewardSpec:
-    name: str
-    weight: float = 1.0
-    params: dict[str, Any] = field(default_factory=dict)
+class RLEvalConfig:
+    suite: str = ""  # path to an eval suite YAML; empty disables eval
+    every_steps: int = 0  # run during training every N optimizer steps (0 = only at end)
+    at_end: bool = True
 
 
 @dataclass
@@ -73,6 +75,7 @@ class RLConfig:
     data: RLDataConfig = field(default_factory=RLDataConfig)
     train: RLTrainConfig = field(default_factory=RLTrainConfig)
     rewards: list[RewardSpec] = field(default_factory=list)
+    eval: RLEvalConfig = field(default_factory=RLEvalConfig)
 
 
 def load_rl_config(path: str | Path) -> RLConfig:
@@ -82,11 +85,12 @@ def load_rl_config(path: str | Path) -> RLConfig:
         data=RLDataConfig(**raw.get("data", {})),
         train=RLTrainConfig(**raw.get("train", {})),
         rewards=[RewardSpec(**r) for r in raw.get("rewards", [])],
+        eval=RLEvalConfig(**raw.get("eval", {})),
     )
     if not cfg.model.name_or_path:
         raise ValueError("model.name_or_path is required")
-    if not cfg.data.path:
-        raise ValueError("data.path is required")
+    if not cfg.data.path and not cfg.data.paths:
+        raise ValueError("data.path or data.paths is required")
     if not cfg.rewards:
         raise ValueError("At least one reward must be configured")
     return cfg

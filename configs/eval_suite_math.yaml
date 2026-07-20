@@ -1,0 +1,58 @@
+# Math eval suite: held-out GSM8K test questions, greedy decoding, plus a
+# prose-regression canary. Same verifier as the GRPO reward.
+# Standalone: python scripts/eval.py --suite configs/eval_suite_math.yaml --source hf --model out/rl_gsm8k/final
+# In-training: eval.suite in configs/rl_grpo_math.yaml (already set).
+name: math-eval
+
+tasks:
+  - name: gsm8k_test
+    type: generation
+    data:
+      source: jsonl
+      path: data/gsm8k/eval.jsonl  # produced by scripts/prepare_rl_data.py (gsm8k TEST split)
+      prompt_field: prompt
+      chat: true
+      system_prompt: "Solve the problem step by step. End your response with the final answer on its own line formatted as '#### <number>'. /no_think"
+      max_samples: 200             # bump for final numbers; 200 keeps in-training eval fast
+    gen:
+      max_new_tokens: 768
+      temperature: 0.0
+      batch_size: 32
+    metrics:
+      - name: math_answer
+        weight: 1.0
+        params: {format_credit: 0.0}  # eval = strict accuracy, no partial credit
+    params:
+      log_samples: 2
+
+  - name: banking77_test
+    type: generation
+    data:
+      source: jsonl
+      path: data/banking77/eval.jsonl  # official banking77 test split
+      prompt_field: prompt
+      chat: true
+      system_prompt: "Think step by step. End your response with the final answer on its own line formatted as '#### <answer>'. /no_think"
+      max_samples: 200
+    gen:
+      max_new_tokens: 384
+      temperature: 0.0
+      batch_size: 32
+    metrics:
+      - name: math_answer          # string fallback = normalized label match
+        weight: 1.0
+        params: {format_credit: 0.0}
+    params:
+      log_samples: 2
+
+  # Regression canary: narrow math RL can degrade general ability. Eyeball samples.
+  - name: prose_canary
+    type: sample
+    gen:
+      max_new_tokens: 80
+      temperature: 0.7
+    params:
+      prompts:
+        - "Explain in two sentences why the sky is blue."
+        - "Write a haiku about winter."
+        - "What is the capital of Japan?"

@@ -1,0 +1,39 @@
+# Pre/mid-training eval suite: loss-based metrics + qualitative samples.
+# Use standalone: python scripts/eval.py --suite configs/eval_suite_pretrain.yaml --source everdream --config <cfg> --checkpoint-step <n>
+# Or in-training: set training.eval_suite: configs/eval_suite_pretrain.yaml in the pretrain config.
+name: pretrain-eval
+
+tasks:
+  - name: bpb
+    type: bpb
+    # params: {eval_tokens: 41943040}   # override context default
+
+  - name: core
+    type: core
+    params:
+      max_per_task: 500
+
+  - name: samples
+    type: sample
+    gen:
+      max_new_tokens: 96
+      temperature: 0.8
+      top_k: 50
+
+  # Generation-based check works for base models too: baselines math ability
+  # before any posttraining. Requires: python scripts/prepare_rl_data.py
+  - name: gsm8k
+    type: generation
+    data:
+      source: jsonl
+      path: data/gsm8k/eval.jsonl
+      prompt_field: prompt
+      system_prompt: "Solve the problem step by step. End your response with the final answer on its own line formatted as '#### <number>'."
+      max_samples: 100
+    gen:
+      max_new_tokens: 512
+      temperature: 0.0
+    metrics:
+      - name: math_answer
+        weight: 1.0
+        params: {format_credit: 0.0}

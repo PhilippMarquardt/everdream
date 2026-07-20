@@ -1,0 +1,58 @@
+# GRPO post-training, two verifiable environments mixed:
+# GSM8K (math) + Banking77 (77-way intent classification).
+# (MedCalc paused — re-add data/medcalc/train.jsonl to paths + its eval task to bring it back.)
+# Prep data:   python scripts/prepare_rl_data.py
+# Single GPU:  python scripts/rl_train.py --config configs/rl_grpo_math.yaml
+# Multi GPU:   accelerate launch --num_processes 2 scripts/rl_train.py --config configs/rl_grpo_math.yaml
+
+model:
+  name_or_path: Qwen/Qwen3-1.7B  # dense, solid TRL/vLLM support; Qwen/Qwen3.5-2B = stronger but hybrid-arch caveats
+  torch_dtype: bfloat16
+  attn_implementation: sdpa  # flash_attention_2 if flash-attn is installed
+
+data:
+  source: jsonl
+  paths:                    # environment mixture, shuffled together (never sequential)
+    - data/gsm8k/train.jsonl
+    - data/banking77/train.jsonl
+  prompt_field: prompt
+  chat: true
+  # Generic across envs: <answer> is a number for math/medcalc, a label for classification.
+  # /no_think: CoT happens in plain text instead of Qwen3 <think> mode (shorter rollouts);
+  # verifiers strip <think> blocks anyway if thinking stays on.
+  system_prompt: "Think step by step. End your response with the final answer on its own line formatted as '#### <answer>'. /no_think"
+
+train:
+  output_dir: out/rl_cls
+  run_name: grpo-gsm8k-banking77
+  learning_rate: 1.0e-6
+  max_steps: 500
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 4
+  num_generations: 8            # group size; effective batch must be divisible by this
+  max_prompt_length: 512
+  max_completion_length: 768
+  temperature: 1.0
+  beta: 0.0                     # >0 enables KL vs reference model (costs ~1x model memory)
+  gradient_checkpointing: true
+  bf16: true
+  use_vllm: true                # big rollout speedup; set false if vllm not installed
+  vllm_mode: colocate
+  save_steps: 100
+  wandb: true
+  wandb_project: everdream-rl
+
+eval:
+  suite: configs/eval_suite_math.yaml
+  every_steps: 100
+  at_end: true
+
+rewards:
+  - name: math_answer
+    weight: 1.0
+    params:
+      format_credit: 0.1        # extractable-but-wrong answer; keeps early advantages non-degenerate
+  - name: length_penalty
+    weight: 0.2
+    params:
+      max_chars: 3000

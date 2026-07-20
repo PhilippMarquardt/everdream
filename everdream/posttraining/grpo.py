@@ -7,18 +7,34 @@ from .config import RLConfig
 from .rewards import build_reward_funcs
 
 
+def _read_jsonl(path: str) -> list[dict]:
+    rows = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+
 def load_prompt_dataset(cfg: RLConfig):
+    import random
+
     from datasets import Dataset, load_dataset
 
     data = cfg.data
     if data.source == "jsonl":
         rows = []
-        with open(data.path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    rows.append(json.loads(line))
-        ds = Dataset.from_list(rows)
+        for path in (data.paths or [data.path]):
+            env_rows = _read_jsonl(path)
+            print(f"[data] {path}: {len(env_rows)} prompts")
+            rows.extend(env_rows)
+        # Environment mixture: every batch samples across envs, never sequential.
+        random.Random(cfg.train.seed).shuffle(rows)
+        # Normalize to the union of columns (envs carry different verifier
+        # columns; schema inference would otherwise drop the missing ones).
+        all_keys = sorted(set().union(*(r.keys() for r in rows)))
+        ds = Dataset.from_list([{k: r.get(k) for k in all_keys} for r in rows])
     elif data.source == "hf":
         ds = load_dataset(data.path, split=data.split)
     else:
@@ -42,6 +58,32 @@ def load_prompt_dataset(cfg: RLConfig):
     return ds.map(to_prompt, remove_columns=remove)
 
 
+def _run_eval_suite(model, tokenizer, suite, header):
+    from everdream.evaluation import HFAdapter, flatten_results, print_results, run_suite
+
+    results = run_suite(HFAdapter(model, tokenizer), suite)
+    print_results(results, header=header)
+    try:
+        import wandb
+
+        if wandb.run is not None:
+            wandb.log(flatten_results(results))
+    except ImportError:
+        pass
+    return results
+
+
+def _make_eval_callback(suite, every_steps):
+    from transformers import TrainerCallback
+
+    class SuiteEvalCallback(TrainerCallback):
+        def on_step_end(self, args, state, control, model=None, processing_class=None, **kwargs):
+            if state.global_step % every_steps == 0 and state.is_world_process_zero:
+                _run_eval_suite(model, processing_class, suite, header=f"eval @ step {state.global_step}")
+
+    return SuiteEvalCallback()
+
+
 def train(cfg: RLConfig):
     import torch
     from trl import GRPOConfig, GRPOTrainer
@@ -52,7 +94,13 @@ def train(cfg: RLConfig):
     dataset = load_prompt_dataset(cfg)
     reward_funcs, reward_weights = build_reward_funcs(cfg.rewards)
 
-    args = GRPOConfig(
+    eval_suite = None
+    if cfg.eval.suite:
+        from everdream.evaluation import load_eval_suite
+
+        eval_suite = load_eval_suite(cfg.eval.suite)
+
+    grpo_kwargs = dict(
         output_dir=cfg.train.output_dir,
         run_name=cfg.train.run_name,
         seed=cfg.train.seed,
@@ -84,12 +132,26 @@ def train(cfg: RLConfig):
             "trust_remote_code": cfg.model.trust_remote_code,
         },
     )
+    # TRL renames/drops GRPOConfig fields across versions (e.g. max_prompt_length
+    # gone in 1.8); pass only what the installed version accepts.
+    supported = GRPOConfig.__dataclass_fields__
+    dropped = sorted(k for k in grpo_kwargs if k not in supported)
+    if dropped:
+        print(f"[grpo] dropping unsupported GRPOConfig args for this TRL version: {dropped}")
+    args = GRPOConfig(**{k: v for k, v in grpo_kwargs.items() if k in supported})
+
+    callbacks = []
+    if eval_suite is not None and cfg.eval.every_steps > 0:
+        callbacks.append(_make_eval_callback(eval_suite, cfg.eval.every_steps))
 
     trainer = GRPOTrainer(
         model=cfg.model.name_or_path,
         reward_funcs=reward_funcs,
         args=args,
         train_dataset=dataset,
+        callbacks=callbacks or None,
     )
     trainer.train(resume_from_checkpoint=cfg.train.resume_from_checkpoint or None)
     trainer.save_model(os.path.join(cfg.train.output_dir, "final"))
+    if eval_suite is not None and cfg.eval.at_end and trainer.accelerator.is_main_process:
+        _run_eval_suite(trainer.model, trainer.processing_class, eval_suite, header="final eval")
