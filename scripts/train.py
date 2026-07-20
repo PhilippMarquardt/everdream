@@ -4,7 +4,7 @@ import os
 from everdream.config.load import load_config
 from everdream.common import autodetect_device_type, compute_cleanup, compute_init, print_banner
 from everdream.runtime.notebook import init_notebook
-from everdream.train.trainer import train
+from everdream.pretraining.trainer import train
 
 
 def main():

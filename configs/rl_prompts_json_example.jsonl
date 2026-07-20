@@ -1,0 +1,8 @@
+{"prompt": "Extract the tool call from: 'search the web for cheap flights to Tokyo in March'", "schema": {"required": ["name", "args"]}}
+{"prompt": "Extract the tool call from: 'set a timer for 25 minutes called pomodoro'", "schema": {"required": ["name", "args"]}}
+{"prompt": "Describe this person as JSON with keys name, age, city: 'Maria, 34, lives in Lisbon'", "schema": {"required": ["name", "age", "city"]}}
+{"prompt": "Convert to JSON with keys product, price, currency: 'The laptop costs 999 euros'", "schema": {"required": ["product", "price", "currency"]}}
+{"prompt": "Extract the tool call from: 'send an email to bob@example.com saying the meeting moved to 3pm'", "schema": {"required": ["name", "args"]}}
+{"prompt": "Summarize as JSON with keys sentiment, topics: 'The new update is fantastic, the UI is much cleaner but battery drains faster'", "schema": {"required": ["sentiment", "topics"]}}
+{"prompt": "Extract the tool call from: 'what is the weather in Berlin this weekend'", "schema": {"required": ["name", "args"]}}
+{"prompt": "Convert to JSON with keys city, country, population_millions: 'Tokyo, Japan, about 37 million people in the metro area'", "schema": {"required": ["city", "country", "population_millions"]}}

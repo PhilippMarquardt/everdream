@@ -1,0 +1,50 @@
+# GRPO post-training: reward valid JSON output.
+# Single GPU:  python scripts/rl_train.py --config configs/rl_grpo_json.yaml
+# Multi GPU:   accelerate launch --num_processes 2 scripts/rl_train.py --config configs/rl_grpo_json.yaml
+
+model:
+  name_or_path: Qwen/Qwen2.5-0.5B-Instruct  # any HF causal LM; swap in your own converted checkpoint
+  torch_dtype: bfloat16
+  attn_implementation: sdpa  # flash_attention_2 if flash-attn is installed
+
+data:
+  source: jsonl
+  path: configs/rl_prompts_json_example.jsonl
+  prompt_field: prompt
+  chat: true
+  system_prompt: "Respond with a single JSON object only. No prose, no markdown fences."
+
+train:
+  output_dir: out/rl_json
+  run_name: grpo-json
+  learning_rate: 1.0e-6
+  max_steps: 500
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 4
+  num_generations: 8            # group size; effective batch must be divisible by this
+  max_prompt_length: 512
+  max_completion_length: 512
+  temperature: 1.0
+  beta: 0.0                     # >0 enables KL vs reference model (costs ~1x model memory)
+  gradient_checkpointing: true
+  bf16: true
+  use_vllm: false               # true + colocate for much faster rollouts (Linux, vllm installed)
+  vllm_mode: colocate
+  save_steps: 100
+  wandb: false
+  wandb_project: everdream-rl
+
+rewards:
+  - name: json_valid
+    weight: 1.0
+    params:
+      extract: none             # none | fence | first_object
+  - name: json_schema
+    weight: 1.0
+    params:
+      extract: none
+      required_keys: [name, args]   # overridden per-sample by a "schema" column if present
+  - name: length_penalty
+    weight: 0.3
+    params:
+      max_chars: 1024

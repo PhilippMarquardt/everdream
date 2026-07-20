@@ -27,6 +27,13 @@ moe = [
 hybrid = [
   "flash-linear-attention",
 ]
+rl = [
+  "trl>=0.14.0",
+  "accelerate>=1.0.0",
+]
+rl-vllm = [
+  "vllm",
+]
 
 [tool.setuptools.packages.find]
 include = ["everdream*"]
